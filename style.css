@@ -26,7 +26,7 @@
 .payment-readiness{margin-top:10px;padding:9px 10px;background:#f0f3ec;color:#68756a;font-size:9px;line-height:1.45;border-left:2px solid #b7c6ae}
 .payment-readiness[data-state="unconfigured"],.payment-readiness[data-state="error"]{background:#fbf0e9;color:#815e4a;border-color:#d8aa8f}
 .payment-readiness[data-state="live-key"]{background:#f0f3ec;color:#68756a;border-color:#b7c6ae}
-.paystack-customer{margin:0 0 12px;color:#7c887e;font-size:10px;line-height:1.5}
+.payment-customer{margin:0 0 12px;color:#7c887e;font-size:10px;line-height:1.5}
 .plan-option{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;background:#f0f3ec}
 .plan-option strong,.plan-option small{display:block}
 .plan-option strong{font-size:10px}

@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -13,46 +12,54 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   const port = 32000 + Math.floor(Math.random() * 20000);
   const databasePath = path.join(tempDirectory, 'test.sqlite');
   const earningsSecret = 'test-only-earnings-secret-that-is-long-enough';
-  const paystackSecret = 'sk_test_fake_key_for_integration_tests';
-  const mockPaystack = `
-    const transactions = new Map();
+  const intasendSecret = 'ISSecretKey_test_fake_for_integration_tests';
+  const intasendPublic = 'ISPubKey_test_fake_for_integration_tests';
+  const webhookChallenge = 'test-only-webhook-challenge-value';
+  const mockIntaSend = `
+    const invoices = new Map();
     global.fetch = async (input, options = {}) => {
       const url = new URL(input);
-      if (url.hostname !== 'api.paystack.co') throw new Error('Unexpected external request in test');
-      if (url.pathname === '/transaction/initialize') {
+      if (url.hostname !== 'api.intasend.com') throw new Error('Unexpected external request in test');
+      if (url.pathname === '/api/v1/checkout/' && options.method === 'POST') {
+        if (options.headers['X-IntaSend-Public-API-Key'] !== process.env.INTASEND_PUBLISHABLE_KEY) throw new Error('Missing IntaSend publishable key');
         const request = JSON.parse(options.body);
-        transactions.set(request.reference, {
-          reference: request.reference,
-          amount: request.amount,
+        const invoiceId = 'invoice-' + request.api_ref;
+        invoices.set(invoiceId, {
+          invoice_id: invoiceId,
+          api_ref: request.api_ref,
           currency: request.currency,
-          status: 'success',
-          customer: { email: request.email }
+          value: request.amount,
+          state: 'COMPLETE',
+          provider_ref: 'test-provider-ref'
         });
-        return new Response(JSON.stringify({
-          status: true,
-          data: { authorization_url: 'https://checkout.paystack.com/test', reference: request.reference }
-        }), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      const match = url.pathname.match(/^\\/transaction\\/verify\\/(.+)$/);
-      if (match && transactions.has(decodeURIComponent(match[1]))) {
-        return new Response(JSON.stringify({ status: true, data: transactions.get(decodeURIComponent(match[1])) }), {
+        return new Response(JSON.stringify({ id: invoiceId, url: 'https://sandbox.intasend.com/checkout/test', amount: request.amount, currency: request.currency, paid: false }), {
           status: 200,
           headers: { 'content-type': 'application/json' }
         });
       }
-      return new Response(JSON.stringify({ status: false, message: 'Unknown mock transaction' }), { status: 404 });
+      if (url.pathname === '/api/v1/payment/status/' && options.method === 'POST') {
+        if (options.headers.authorization !== 'Bearer ' + process.env.INTASEND_SECRET_KEY) throw new Error('Missing IntaSend secret key');
+        const { invoice_id: invoiceId } = JSON.parse(options.body);
+        const invoice = invoices.get(invoiceId);
+        return new Response(JSON.stringify(invoice ? { invoice } : { detail: 'Invoice not found' }), {
+          status: invoice ? 200 : 404,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({ detail: 'Unknown mock transaction' }), { status: 404 });
     };
     require('./server.js');
-  `;
-  const child = spawn(process.execPath, ['-e', mockPaystack], {
+  `;  const child = spawn(process.execPath, ['-e', mockIntaSend], {
     cwd: __dirname,
     env: {
       ...process.env,
       PORT: String(port),
       DB_PATH: databasePath,
       SESSION_SECRET: 'test-only-session-secret-that-is-long-enough',
-      PAYSTACK_SECRET_KEY: paystackSecret,
-      PAYSTACK_CALLBACK_URL: 'https://earnchat.example/',
+      INTASEND_PUBLISHABLE_KEY: intasendPublic,
+      INTASEND_SECRET_KEY: intasendSecret,
+      INTASEND_CALLBACK_URL: 'https://earnchat.example/',
+      INTASEND_WEBHOOK_CHALLENGE: webhookChallenge,
       EARNINGS_ADMIN_SECRET: earningsSecret
     },
     stdio: ['ignore', 'ignore', 'pipe']
@@ -83,10 +90,10 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   }
   assert.equal(ready, true, `Server did not start: ${stderr}`);
   const health = await (await fetch(`${baseUrl}/api/health`)).json();
-  assert.equal(health.paymentProvider, 'paystack');
+  assert.equal(health.paymentProvider, 'intasend');
   assert.equal(health.paymentsConfigured, true);
   assert.equal(health.paymentEnvironment, 'test');
-  assert.equal(JSON.stringify(health).includes(paystackSecret), false);
+  assert.equal(JSON.stringify(health).includes(intasendSecret), false);
 
   const registration = await fetch(`${baseUrl}/api/register`, {
     method: 'POST',
@@ -124,7 +131,7 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   assert.equal(paymentResponse.status, 202);
   const verificationPayment = await paymentResponse.json();
   assert.equal(verificationPayment.feeAmountKes, 150);
-  assert.equal(verificationPayment.checkoutUrl, 'https://checkout.paystack.com/test');
+  assert.equal(verificationPayment.checkoutUrl, 'https://sandbox.intasend.com/checkout/test');
 
   let testDb = new DatabaseSync(databasePath);
   const secondRegistration = await fetch(`${baseUrl}/api/register`, {
@@ -142,7 +149,16 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   testDb.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(secondUser.id);
   testDb.close();
 
-  const verificationReturn = await fetch(`${baseUrl}/api/paystack/return?reference=${verificationPayment.paymentId}`, { headers: { cookie } });
+  testDb = new DatabaseSync(databasePath);
+  testDb.prepare('UPDATE fee_payments SET amount_kes = 151 WHERE id = ?').run(verificationPayment.paymentId);
+  testDb.close();
+  const mismatchedPayment = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
+  assert.equal(mismatchedPayment.payment.status, 'pending');
+  testDb = new DatabaseSync(databasePath);
+  testDb.prepare('UPDATE fee_payments SET amount_kes = 150 WHERE id = ?').run(verificationPayment.paymentId);
+  testDb.close();
+
+  const verificationReturn = await fetch(`${baseUrl}/api/intasend/return?payment_id=${verificationPayment.paymentId}`, { headers: { cookie } });
   assert.equal(verificationReturn.status, 200);
   assert.equal((await verificationReturn.json()).payment.status, 'paid');
 
@@ -154,23 +170,24 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   assert.equal(membershipResponse.status, 202);
   const membershipPayment = await membershipResponse.json();
   const webhookBody = JSON.stringify({
-    event: 'charge.success',
-    data: { reference: membershipPayment.paymentId, status: 'success' }
+    topic: 'collection_event',
+    challenge: 'wrong-challenge',
+    invoice_id: 'invoice-' + membershipPayment.paymentId,
+    api_ref: membershipPayment.paymentId,
+    state: 'COMPLETE'
   });
-  const webhookSignature = crypto.createHmac('sha512', paystackSecret).update(webhookBody).digest('hex');
-  const badWebhook = await fetch(`${baseUrl}/api/paystack/webhook`, {
+  const badWebhook = await fetch(`${baseUrl}/api/intasend/webhook`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-paystack-signature': 'bad-signature' },
+    headers: { 'content-type': 'application/json' },
     body: webhookBody
   });
   assert.equal(badWebhook.status, 401);
-  const membershipWebhook = await fetch(`${baseUrl}/api/paystack/webhook`, {
+  const membershipWebhook = await fetch(`${baseUrl}/api/intasend/webhook`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-paystack-signature': webhookSignature },
-    body: webhookBody
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...JSON.parse(webhookBody), challenge: webhookChallenge })
   });
   assert.equal(membershipWebhook.status, 200);
-
   const afterFees = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json();
   assert.equal(afterFees.user.verified, true);
   assert.equal(afterFees.user.earningsBalanceKes, 0);
