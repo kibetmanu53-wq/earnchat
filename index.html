@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EarnChat - Chat &amp; Earn</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">e</span><span>earn<span class="brand-accent">chat</span></span></div>
+      <div class="profile-card">
+        <div class="avatar avatar-you">U</div>
+        <div><strong id="profileDisplayName">Sign in</strong><span class="profile-meta">EarnChat preview</span></div>
+        <button class="icon-button" id="openProfile" aria-label="Open profile dashboard">•••</button>
+      </div>
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="Inbox"><span class="nav-icon">◫</span>Inbox<span class="nav-count">4</span></button>
+        <button class="nav-item" data-view="Discover"><span class="nav-icon">⌕</span>Discover</button>
+        <button class="nav-item" data-view="Earnings"><span class="nav-icon">◌</span>Earnings</button>
+        <button class="nav-item" id="profileNav" data-view="Profile"><span class="nav-icon">◎</span>Profile</button>
+      </nav>
+      <div class="sidebar-label">Your conversations <span>⌄</span></div>
+      <div class="mini-conversations">
+        <button class="mini-chat selected" data-person="Maya Chen"><span class="avatar avatar-maya">MC</span><span class="mini-copy"><strong>Maya Chen</strong><small>That sounds like a plan!</small></span><span class="unread-dot"></span></button>
+        <button class="mini-chat" data-person="Jon Bell"><span class="avatar avatar-jon">JB</span><span class="mini-copy"><strong>Jon Bell</strong><small>Sent you a voice note</small></span></button>
+        <button class="mini-chat" data-person="Priya Shah"><span class="avatar avatar-priya">PS</span><span class="mini-copy"><strong>Priya Shah</strong><small>See you tomorrow ✨</small></span></button>
+      </div>
+      <div class="sidebar-bottom"><div class="help-badge">?</div><span>Need a little help?</span><button class="icon-button">→</button></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumb"><span>Inbox</span><span class="slash">/</span><strong>Messages</strong></div>
+        <div class="top-actions"><button class="notification" aria-label="Notifications">♢<span></span></button><button class="account-button" id="openAccount"><span class="avatar avatar-you tiny" id="accountAvatar">EC</span><span id="accountDisplayName">Sign in</span><span class="chevron">⌄</span></button></div>
+      </header>
+
+      <section class="content-grid">
+        <div class="conversation-column">
+          <div class="conversation-heading"><div><p class="eyebrow" id="todayLabel"></p><h1>Good conversations<br /><em>pay off.</em></h1></div><button class="new-chat" id="newChat"><span>＋</span> New chat</button></div>
+          <div class="conversation-toolbar"><div class="search-box"><span>⌕</span><input id="searchInput" type="search" placeholder="Search conversations" /></div><button class="filter-button">All conversations <span>⌄</span></button></div>
+          <div class="conversation-list" id="conversationList">
+            <button class="conversation-row active" data-person="Maya Chen"><span class="avatar avatar-maya">MC</span><span class="row-content"><strong>Maya Chen <i class="online-dot"></i></strong><small>That sounds like a plan! Have you ever tried...</small></span><span class="row-time"><small>10:42 AM</small><b>2</b></span></button>
+            <button class="conversation-row" data-person="Jon Bell"><span class="avatar avatar-jon">JB</span><span class="row-content"><strong>Jon Bell</strong><small>Sent you a voice note</small></span><span class="row-time"><small>Yesterday</small></span></button>
+            <button class="conversation-row" data-person="Priya Shah"><span class="avatar avatar-priya">PS</span><span class="row-content"><strong>Priya Shah</strong><small>See you tomorrow ✨</small></span><span class="row-time"><small>Sun</small></span></button>
+            <button class="conversation-row" data-person="Eli Santos"><span class="avatar avatar-eli">ES</span><span class="row-content"><strong>Eli Santos</strong><small>How did your interview go?</small></span><span class="row-time"><small>Sat</small></span></button>
+          </div>
+          <div class="quiet-note"><span>✦</span><p>Preview inbox · sample conversations only.<br />Real member chat and chat earnings are not live yet.</p></div>
+        </div>
+
+        <section class="chat-panel" aria-label="Active conversation">
+          <div class="chat-header"><div class="chat-person"><span class="avatar avatar-maya">MC</span><div><h2 id="chatName">Maya Chen</h2><p>Sample conversation · <span id="chatTopic">Portland, OR</span></p></div></div><div class="chat-header-actions"><button class="icon-button" aria-label="Video call">◉</button><button class="icon-button" aria-label="More options">•••</button></div></div>
+          <div class="chat-body" id="chatBody"><div class="date-divider"><span>Today</span></div><div class="message-row incoming"><span class="avatar avatar-maya small">MC</span><div><div class="bubble">Hey Alex! I saw you’re into weekend hikes. I’m planning a trip out to the coast soon.</div><time>10:36 AM</time></div></div><div class="message-row outgoing"><div><div class="bubble">That sounds like a plan! Have you ever tried the trails around Cape Lookout?</div><time>10:38 AM <span class="read-mark">✓✓</span></time></div></div><div class="message-row incoming"><span class="avatar avatar-maya small">MC</span><div><div class="bubble">Not yet, but it’s officially on the list. I’m a little intimidated by the distance though!</div><time>10:42 AM</time></div></div><div class="typing"><span class="avatar avatar-maya small">MC</span><span class="typing-text"><i></i><i></i><i></i></span><small>Maya is typing...</small></div></div>
+          <form class="message-composer" id="messageForm"><button type="button" class="attach-button" aria-label="Add attachment">＋</button><input id="messageInput" type="text" placeholder="Write a message..." autocomplete="off" /><button type="submit" class="send-button" aria-label="Send message">↑</button><div class="composer-tools"><span>⌘</span><span>☺</span></div></form>
+        </section>
+
+        <aside class="earnings-panel">
+          <div class="earnings-top"><span class="eyebrow">Your wallet</span><button class="icon-button">•••</button></div>
+          <div class="balance-wrap"><span class="balance-label">Eligible earnings</span><strong class="balance" id="walletBalance">KSh 0</strong><span class="balance-change" id="availableBalance">Available to withdraw: KSh 0</span></div>
+          <button class="withdraw-button" id="withdrawButton">Withdraw earnings <span>→</span></button>
+          <div class="wallet-demo-note" id="walletNotice">Fees and eligible earnings are tracked separately.</div>
+          <div class="payment-readiness" id="paymentReadiness" role="status" aria-live="polite">Checking payment setup…</div>
+          <div class="earnings-divider"></div>
+          <div class="stat-row fee-totals"><div><span class="stat-label">Verification fees paid</span><strong id="verificationFees">KSh 0</strong></div><div><span class="stat-label">Membership fees paid</span><strong id="membershipFees">KSh 0</strong></div><div><span class="stat-label">Withdrawal fees paid</span><strong id="withdrawalFees">KSh 0</strong></div></div>
+          <div class="earnings-divider"></div>
+          <section class="membership-section" aria-labelledby="membershipHeading">
+            <div class="goal-heading"><span><strong id="membershipHeading">Membership plans</strong><small id="membershipStatus">No active plan</small></span></div>
+            <div class="plan-option"><div><strong>Beginner</strong><small>KSh 499 · basic chat features</small></div><button class="plan-action" data-plan="beginner">Choose</button></div>
+            <div class="plan-option"><div><strong>Advanced</strong><small>KSh 1,300 per eligible chat</small></div><button class="plan-action" data-plan="advanced">Choose</button></div>
+            <div class="plan-option"><div><strong>Premium</strong><small>KSh 2,500 per eligible chat</small></div><button class="plan-action" data-plan="premium">Choose</button></div>
+            <p class="plan-eligibility">Advanced/Premium earnings require a completed 5-minute chat with a different verified member. Demo/sample chats do not qualify.</p>
+          </section>
+          <div class="earnings-divider"></div>
+          <div class="goal-heading"><span><strong>Withdrawal requirements</strong><small>Verified account required</small></span></div>
+          <p class="goal-caption">Minimum eligible available earnings: <strong>KSh 3,500</strong>. Processing fee: <strong>KSh 50</strong>, shown separately before confirmation.</p>
+          <p class="wallet-demo-note">Withdrawals are unavailable until an authorized payout service is configured.</p>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="accountModal" aria-hidden="true"><div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle"><button class="modal-close" id="closeAccount" aria-label="Close">×</button><span class="modal-mark">e</span><p class="eyebrow">Your EarnChat account</p><h2 id="authTitle">Welcome<br /><em>back.</em></h2><p class="modal-subtitle" id="authDescription">Sign in to open your dashboard.</p><form id="authForm"><label id="authNameField" hidden>Display name<input id="authName" type="text" autocomplete="name" /></label><label>Email address<input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" required /></label><label>Password<input id="authPassword" type="password" placeholder="Enter a password" autocomplete="current-password" minlength="10" required /></label><button class="modal-submit" id="modalSubmit" type="submit">Sign in <span>→</span></button></form><p class="modal-footer"><span id="authSwitchText">New here?</span> <button class="text-button" id="authSwitch" type="button">Create an account</button></p><p class="demo-disclaimer">Passwords are stored as salted hashes by the server.</p><button class="logout-button" id="logoutButton" type="button" hidden>Sign out</button></div></div>
+  <div class="modal-backdrop" id="profileModal" aria-hidden="true"><div class="modal profile-modal" role="dialog" aria-modal="true"><button class="modal-close" id="closeProfile">×</button><span class="modal-mark">e</span><p class="eyebrow">Profile dashboard</p><h2>Tell people<br /><em>who you are.</em></h2><p class="modal-subtitle">Complete your details so good conversations find you.</p><div class="profile-form-grid"><label>Display name<input id="profileName" /></label><label>Age<input id="profileAge" type="number" min="18" /></label></div><label>Location<input id="profileLocation" placeholder="City, country" /></label><label>Short bio<textarea id="profileBio" rows="3" placeholder="What do you enjoy talking about?"></textarea></label><label>Interests<input id="profileInterests" placeholder="Travel, music, technology" /></label><div class="activation-box"><div><strong>Account verification</strong><small>One-time KSh 150 M-Pesa payment. Status updates only after provider confirmation.</small></div><span class="verification-pill" id="verificationStatus">Pending</span></div><button class="modal-submit" id="activateButton">Save details &amp; continue <span>→</span></button><p class="modal-footer">Withdrawal requires server-recorded earnings and separate M-Pesa disbursement setup.</p></div></div>
+  <div class="modal-backdrop" id="paymentModal" aria-hidden="true"><div class="modal payment-modal" role="dialog" aria-modal="true" aria-labelledby="paymentTitle"><button class="modal-close" id="closePayment">×</button><span class="modal-mark">e</span><p class="eyebrow" id="paymentEyebrow">Paystack verification checkout</p><h2 id="paymentTitle">Activate your<br /><em>account.</em></h2><p class="modal-subtitle" id="paymentDescription">Continue to Paystack for secure payment. Your account is verified only after the server verifies successful payment.</p><p class="paystack-customer" id="paystackCustomer"></p><div class="payment-summary"><span id="paymentFeeLabel">Verification fee</span><strong id="paymentAmount">KSh 150</strong></div><button class="modal-submit" id="requestPayment">Continue to Paystack <span>→</span></button><p class="modal-footer">EarnChat confirms payment with Paystack before recording your fee or activating your account.</p></div></div>
+  <div class="modal-backdrop" id="withdrawalModal" aria-hidden="true"><div class="modal payment-modal" role="dialog" aria-modal="true" aria-labelledby="withdrawalTitle"><button class="modal-close" id="closeWithdrawal" aria-label="Close">×</button><span class="modal-mark">u</span><p class="eyebrow">Withdrawal request</p><h2 id="withdrawalTitle">Cash out<br /><em>your earnings.</em></h2><p class="modal-subtitle">Withdraw only after verification and when available earnings reach KSh 3,500. Processing fees are separate from earnings.</p><label>Withdrawal amount<input id="withdrawalAmount" type="number" min="3500" step="1" value="3500" /></label><label>M-Pesa phone number<input id="withdrawalPhone" type="tel" inputmode="numeric" placeholder="0712 345 678" /></label><div class="payment-summary"><span>Withdrawal amount (from earned balance)</span><strong id="withdrawalAmountSummary">KSh 3,500</strong></div><div class="payment-summary withdrawal-fee-summary"><span>Separate processing fee</span><strong>KSh 50</strong></div><p class="demo-disclaimer">Withdrawal requests are not enabled until an authorized M-Pesa payout service is configured. No processing fee is collected yet.</p><button class="modal-submit" id="requestWithdrawal" disabled>Withdrawals unavailable <span>·</span></button></div></div>
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

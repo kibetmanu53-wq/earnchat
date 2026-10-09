@@ -1,0 +1,13 @@
+{
+  "name": "earnchat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EarnChat dashboard with server-side Paystack checkout and eligible chat earnings",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  }
+}
