@@ -9,8 +9,8 @@ Use Node.js 22.9 or newer. The project uses Node's built-in SQLite module and ha
 1. Copy `.env.example` to `.env`.
 2. Generate separate random secrets of at least 32 characters for `SESSION_SECRET` and `EARNINGS_ADMIN_SECRET`.
 3. Create a Daraja app and add its consumer key and consumer secret to the server environment. Never expose these credentials in browser code, chat, or GitHub.
-4. Configure the shortcode, passkey, environment, and callback URL. The callback must be `https://your-domain/api/mpesa/callback` for a public deployment.
-5. Use Daraja sandbox credentials while testing. Set `MPESA_ENVIRONMENT=production` only after Safaricom has enabled production access and issued credentials for Paybill 542542.
+4. For sandbox testing, use the Daraja sandbox app credentials, sandbox passkey, and shortcode `174379`. Configure the callback URL as a publicly reachable HTTPS URL ending in `/api/mpesa/callback`.
+5. Set `MPESA_ENVIRONMENT=production` only after Safaricom has enabled production access and issued production credentials for Paybill 542542; then change the shortcode to `542542`.
 6. Run `npm start` and open `http://localhost:3000`. Do not open `index.html` directly as a `file:` URL.
 
 If PowerShell blocks the `npm` script, run `npm.cmd start` and `npm.cmd test`.
@@ -21,7 +21,7 @@ The included `render.yaml` Blueprint creates a Node web service, health check, a
 
 1. Push this project, including `render.yaml`, to the GitHub repository you want to deploy. Do not add `.env`, API credentials, or other secrets to GitHub.
 2. In Render, choose **New > Blueprint**, connect GitHub, and select that repository. Review the paid service and persistent-disk cost before creating it.
-3. Add Daraja consumer key, consumer secret, passkey, and callback URL to Render's environment settings. Keep `MPESA_ENVIRONMENT=sandbox` until Safaricom approves production access. Set callback URL to `https://<your-render-hostname>/api/mpesa/callback`.
+3. Add Daraja sandbox consumer key, consumer secret, passkey, and callback URL to Render's environment settings. The sandbox shortcode is `174379`. Set callback URL to `https://<your-render-hostname>/api/mpesa/callback`.
 4. After Safaricom enables production access for Paybill 542542, enter its production credentials directly in Render and set `MPESA_ENVIRONMENT=production`.
 5. Visit `https://<your-render-hostname>/api/health`; confirm `"paymentsConfigured":true` and the expected environment before starting payments.
 

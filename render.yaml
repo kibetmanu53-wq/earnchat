@@ -20,7 +20,7 @@ services:
       - key: MPESA_ENVIRONMENT
         value: sandbox
       - key: MPESA_SHORTCODE
-        value: "542542"
+        value: "174379"
       - key: MPESA_CONSUMER_KEY
         sync: false
       - key: MPESA_CONSUMER_SECRET
