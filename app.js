@@ -125,20 +125,20 @@ function updateCurrentDate() {
 function configurePaymentModal(kind) {
   state.paymentKind = kind;
   const beginner = kind === 'beginner_membership';
-  document.getElementById('paymentEyebrow').textContent = beginner ? 'IntaSend membership checkout' : 'IntaSend verification checkout';
+  document.getElementById('paymentEyebrow').textContent = beginner ? 'Paystack membership checkout' : 'Paystack verification checkout';
   document.getElementById('paymentTitle').innerHTML = beginner ? 'Choose your<br /><em>membership.</em>' : 'Activate your<br /><em>account.</em>';
   document.getElementById('paymentDescription').textContent = beginner
-    ? 'Continue to IntaSend to pay KSh 499 for the Beginner plan. Membership activates only after the server verifies successful payment.'
-    : 'Continue to IntaSend for secure payment. Your account is verified only after the server verifies successful payment.';
+    ? 'Continue to Paystack to pay the fixed KSh 499 Beginner fee. Membership activates only after the server verifies payment.'
+    : 'Continue to Paystack to pay the fixed KSh 150 verification fee. Your account activates only after the server verifies payment.';
   document.getElementById('paymentFeeLabel').textContent = beginner ? 'Beginner membership fee' : 'Verification fee';
   document.getElementById('paymentAmount').textContent = formatKsh(beginner ? 499 : 150);
-  document.getElementById('requestPayment').innerHTML = `Continue to IntaSend <span>→</span>`;
-  document.getElementById('paymentCustomer').textContent = `IntaSend checkout will use your account email: ${state.account?.email || ''}`;
+  document.getElementById('requestPayment').innerHTML = `Continue to Paystack <span>→</span>`;
+  document.getElementById('paymentCustomer').textContent = `Paystack checkout will use your account email: ${state.account?.email || ''}`;
 }
 
 function updateAccountUI() {
   document.querySelector('#profileModal .activation-box small').textContent =
-    'One-time KSh 150 IntaSend payment. Status updates only after provider confirmation.';
+    'One-time KSh 150 Paystack payment. Status updates only after payment is confirmed by the server.';
   if (!state.account) {
     document.getElementById('profileDisplayName').textContent = 'Sign in';
     document.getElementById('accountDisplayName').textContent = 'Sign in';
@@ -231,14 +231,13 @@ async function refreshPaymentReadiness() {
   try {
     const health = await apiRequest('/api/health');
     if (!health.paymentsConfigured) {
-      status.textContent = 'Payments are not connected yet. Add your IntaSend keys, webhook challenge, and public callback URL to the server.';
+      status.textContent = 'Paystack is not connected yet. Add your secret key and public HTTPS callback URL to the server environment.';
       status.dataset.state = 'unconfigured';
       return;
     }
-    const environment = health.paymentEnvironment === 'test' ? 'Test key detected'
-      : health.paymentEnvironment === 'live' ? 'Live key detected'
-        : 'Payment key detected';
-    status.textContent = `${environment}. Confirm your IntaSend account is active and the required payment methods are enabled before accepting payments.`;
+    const environment = health.paymentEnvironment === 'live' ? 'Paystack live key detected'
+      : health.paymentEnvironment === 'test' ? 'Paystack test key detected' : 'Paystack key detected';
+    status.textContent = `${environment}. Confirm your Paystack account is approved for KES and the payment channels you plan to accept.`;
     status.dataset.state = health.paymentEnvironment === 'live' ? 'live-key' : 'configured';
   } catch (error) {
     status.textContent = `Could not check payment setup: ${error.message}`;
@@ -249,7 +248,7 @@ async function refreshPaymentReadiness() {
 async function pollPayment(paymentId, attempts = 0) {
   if (attempts >= 40) {
     state.pendingPaymentId = null;
-    showToast('Payment is still processing. Check your dashboard again shortly before retrying.');
+    showToast('Payment confirmation is still processing. Check your dashboard again shortly before retrying.');
     return;
   }
   await new Promise((resolve) => window.setTimeout(resolve, 3000));
@@ -260,15 +259,15 @@ async function pollPayment(paymentId, attempts = 0) {
       await refreshSession();
       toggleModal(paymentModal, false);
       showToast(payment.kind === 'verification'
-        ? 'IntaSend confirmed payment. Your account is verified.'
-        : 'IntaSend confirmed payment. Your Beginner membership is active.');
+        ? 'Paystack confirmed payment. Your account is verified.'
+        : 'Paystack confirmed payment. Your Beginner membership is active.');
       return;
     }
     if (payment.status === 'failed' || payment.status === 'initiation_failed') {
       state.pendingPaymentId = null;
       await refreshSession();
       toggleModal(paymentModal, false);
-      showToast('IntaSend payment was not completed. No fee was marked as paid.');
+      showToast('Paystack payment was not completed. No fee was marked as paid.');
       return;
     }
     await pollPayment(paymentId, attempts + 1);
@@ -278,31 +277,31 @@ async function pollPayment(paymentId, attempts = 0) {
   }
 }
 
-async function handleIntaSendReturn() {
+async function handlePaystackReturn() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('payment') !== 'intasend') return;
+  if (params.get('payment') !== 'paystack') return;
   const paymentId = params.get('payment_id') || '';
   window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
   if (!paymentId) {
-    showToast('IntaSend returned without a payment reference. Check your dashboard before retrying.');
+    showToast('Paystack returned without a payment reference. Check your dashboard before retrying.');
     return;
   }
   try {
-    const { payment } = await apiRequest(`/api/intasend/return?payment_id=${encodeURIComponent(paymentId)}`);
+    const { payment } = await apiRequest(`/api/paystack/return?payment_id=${encodeURIComponent(paymentId)}`);
     if (payment.status === 'paid') {
       await refreshSession();
       showToast(payment.kind === 'verification'
-        ? 'IntaSend confirmed payment. Your account is verified.'
-        : 'IntaSend confirmed payment. Your Beginner membership is active.');
+        ? 'Paystack confirmed payment. Your account is verified.'
+        : 'Paystack confirmed payment. Your Beginner membership is active.');
     } else if (payment.status === 'failed' || payment.status === 'initiation_failed') {
-      showToast('IntaSend payment was not completed. No fee was marked as paid.');
+      showToast('Paystack payment was not completed. No fee was marked as paid.');
     } else {
       state.pendingPaymentId = payment.id;
       showToast('Payment is still processing. We will check the verified transaction status.');
       pollPayment(payment.id);
     }
   } catch (error) {
-    showToast(`Could not confirm IntaSend payment: ${error.message}`);
+    showToast(`Could not confirm Paystack payment: ${error.message}`);
   }
 }
 
@@ -547,7 +546,7 @@ document.getElementById('activateButton').addEventListener('click', () => {
 
 document.getElementById('requestPayment').addEventListener('click', () => {
   if (state.pendingPaymentId) {
-    showToast('A payment request is already pending. Complete checkout or wait for its status.');
+    showToast('A payment request is already pending. Complete Paystack checkout or wait for confirmation.');
     return;
   }
   if (!state.account) {
@@ -563,7 +562,7 @@ document.getElementById('requestPayment').addEventListener('click', () => {
     method: 'POST',
     body: JSON.stringify({ kind: state.paymentKind })
   }).then(({ checkoutUrl }) => {
-    if (!checkoutUrl) throw new Error('IntaSend did not return a checkout URL.');
+    if (!checkoutUrl) throw new Error('Paystack did not return a checkout URL.');
     window.location.assign(checkoutUrl);
   }).catch((error) => {
     showToast(error.message);
@@ -707,4 +706,4 @@ updateWalletUI();
 setAuthMode('login');
 refreshSession();
 refreshPaymentReadiness();
-handleIntaSendReturn();
+handlePaystackReturn();

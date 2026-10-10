@@ -17,11 +17,7 @@ services:
         generateValue: true
       - key: EARNINGS_ADMIN_SECRET
         generateValue: true
-      - key: INTASEND_PUBLISHABLE_KEY
+      - key: PAYSTACK_SECRET_KEY
         sync: false
-      - key: INTASEND_SECRET_KEY
-        sync: false
-      - key: INTASEND_WEBHOOK_CHALLENGE
-        sync: false
-      - key: INTASEND_CALLBACK_URL
+      - key: PAYSTACK_CALLBACK_URL
         sync: false

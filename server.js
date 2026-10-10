@@ -104,6 +104,11 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 `);
+for (const table of ['fee_payments', 'membership_payments']) {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === 'provider_reference')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN provider_reference TEXT`);
+  }
+}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -206,7 +211,7 @@ function userPayload(user) {
     WHERE user_id = ? AND status = 'paid' GROUP BY kind
   `).all(user.id).map((fee) => [fee.kind, fee.total]));
   const fees = db.prepare(`
-    SELECT kind, amount_kes, status, mpesa_receipt, created_at
+    SELECT kind, amount_kes, status, provider_reference, created_at
     FROM fee_payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
   `).all(user.id);
   const membershipFees = db.prepare(`
@@ -233,105 +238,112 @@ function userPayload(user) {
   };
 }
 
-function intasendConfigError() {
-  if (!process.env.INTASEND_PUBLISHABLE_KEY) return 'Set INTASEND_PUBLISHABLE_KEY in the server environment.';
-  if (!process.env.INTASEND_SECRET_KEY) return 'Set INTASEND_SECRET_KEY in the server environment.';
-  if (!process.env.INTASEND_CALLBACK_URL) return 'Set INTASEND_CALLBACK_URL to your public website URL.';
+function paystackConfigError() {
+  if (!process.env.PAYSTACK_SECRET_KEY) return 'Set PAYSTACK_SECRET_KEY in the server environment.';
+  if (!/^sk_(test|live)_/.test(process.env.PAYSTACK_SECRET_KEY)) {
+    return 'PAYSTACK_SECRET_KEY must be a Paystack test or live secret key.';
+  }
+  if (!process.env.PAYSTACK_CALLBACK_URL) return 'Set PAYSTACK_CALLBACK_URL to your public website URL.';
   try {
-    const callback = new URL(process.env.INTASEND_CALLBACK_URL);
+    const callback = new URL(process.env.PAYSTACK_CALLBACK_URL);
     if (callback.protocol !== 'https:' && (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1'].includes(callback.hostname))) {
-      return 'INTASEND_CALLBACK_URL must use HTTPS.';
+      return 'PAYSTACK_CALLBACK_URL must use HTTPS.';
     }
   } catch {
-    return 'INTASEND_CALLBACK_URL must be a valid URL.';
+    return 'PAYSTACK_CALLBACK_URL must be a valid URL.';
   }
   return null;
 }
 
-async function intasendRequest(endpoint, { publicKey = false, ...options } = {}) {
-  const response = await fetch(`https://api.intasend.com/api/v1${endpoint}`, {
+async function paystackRequest(endpoint, options = {}) {
+  const response = await fetch(`https://api.paystack.co${endpoint}`, {
     ...options,
     headers: {
-      ...(publicKey
-        ? { 'X-IntaSend-Public-API-Key': process.env.INTASEND_PUBLISHABLE_KEY }
-        : { authorization: `Bearer ${process.env.INTASEND_SECRET_KEY}` }),
+      authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
       ...(options.body ? { 'content-type': 'application/json' } : {}),
       ...options.headers
     }
   });
   const body = await response.json();
-  if (!response.ok) {
-    const detail = typeof body.detail === 'string' ? body.detail : body.message;
-    throw new Error(detail || 'IntaSend could not complete the request.');
+  if (!response.ok || body.status !== true) {
+    throw new Error(body.message || 'Paystack could not complete the transaction request.');
   }
   return body;
 }
 
-async function initializeIntaSendPayment({ user, amountKes, paymentId }) {
-  const callback = new URL(process.env.INTASEND_CALLBACK_URL);
-  callback.searchParams.set('payment', 'intasend');
+async function initializePaystackPayment({ user, amountKes, paymentId, kind }) {
+  const callback = new URL(process.env.PAYSTACK_CALLBACK_URL);
+  callback.searchParams.set('payment', 'paystack');
   callback.searchParams.set('payment_id', paymentId);
-  const nameParts = user.display_name.trim().split(/\s+/);
-  const result = await intasendRequest('/checkout/', {
+  const reference = `ec_${paymentId.replaceAll('-', '')}`;
+  const result = await paystackRequest('/transaction/initialize', {
     method: 'POST',
-    publicKey: true,
     body: JSON.stringify({
-      amount: amountKes,
-      currency: 'KES',
       email: user.email,
-      first_name: nameParts[0] || '',
-      last_name: nameParts.slice(1).join(' '),
-      api_ref: paymentId,
-      unique_api_ref: true,
-      redirect_url: callback.toString(),
-      host: new URL(process.env.INTASEND_CALLBACK_URL).origin
+      amount: amountKes * 100,
+      currency: 'KES',
+      reference,
+      callback_url: callback.toString(),
+      metadata: { payment_id: paymentId, kind }
     })
   });
-  const invoiceId = result.invoice_id || result.id;
-  if (typeof result.url !== 'string' || !result.url.startsWith('https://')
-    || typeof invoiceId !== 'string' || !invoiceId) {
-    throw new Error('IntaSend returned an invalid checkout response.');
+  let checkoutUrl;
+  try {
+    checkoutUrl = new URL(result.data?.authorization_url);
+  } catch {
+    throw new Error('Paystack returned an invalid checkout URL.');
   }
-  return { invoiceId, url: result.url };
+  if (checkoutUrl.protocol !== 'https:'
+    || checkoutUrl.hostname !== 'checkout.paystack.com'
+    || result.data.reference !== reference) {
+    throw new Error('Paystack returned an invalid checkout response.');
+  }
+  return { reference, url: checkoutUrl.toString() };
 }
 
-function findIntaSendPaymentById(paymentId) {
+function findPaystackPaymentById(paymentId) {
   const fee = db.prepare('SELECT * FROM fee_payments WHERE id = ?').get(paymentId);
   if (fee) return { ...fee, table: 'fee_payments', kind: fee.kind };
   const membership = db.prepare('SELECT * FROM membership_payments WHERE id = ?').get(paymentId);
   return membership ? { ...membership, table: 'membership_payments', kind: 'beginner_membership' } : null;
 }
 
-function paymentAmountMatches(actual, expectedKes) {
-  const amount = Number(actual);
-  return Number.isFinite(amount) && Math.round(amount * 100) === expectedKes * 100;
+function validPaystackSignature(rawBody, signature) {
+  if (!process.env.PAYSTACK_SECRET_KEY || typeof signature !== 'string' || !/^[0-9a-f]{128}$/i.test(signature)) return false;
+  const expected = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
+  const actual = Buffer.from(signature, 'hex');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-async function verifyIntaSendInvoice(payment, invoiceId = payment?.checkout_request_id) {
-  if (!payment || typeof invoiceId !== 'string' || !invoiceId || payment.status === 'paid') return payment;
-  const result = await intasendRequest('/payment/status/', {
-    method: 'POST',
-    body: JSON.stringify({ invoice_id: invoiceId })
-  });
-  const invoice = result.invoice;
-  if (!invoice || invoice.invoice_id !== invoiceId || invoice.api_ref !== payment.id) return payment;
-  const status = invoice.state === 'COMPLETE'
-    && invoice.currency === 'KES'
-    && paymentAmountMatches(invoice.value, payment.amount_kes) ? 'paid'
-    : ['FAILED', 'CANCELED'].includes(invoice.state) ? 'failed' : payment.status;
+async function verifyPaystackPayment(payment, reference = payment?.checkout_request_id) {
+  if (!payment || typeof reference !== 'string' || !reference || payment.status === 'paid') return payment;
+  const result = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`);
+  const transaction = result.data;
+  if (!transaction
+    || transaction.reference !== reference
+    || transaction.metadata?.payment_id !== payment.id) return payment;
+  const status = transaction.status === 'success'
+    && transaction.currency === 'KES'
+    && Number(transaction.amount) === payment.amount_kes * 100 ? 'paid'
+    : ['failed', 'abandoned'].includes(transaction.status) ? 'failed' : payment.status;
   if (status === payment.status) return { ...payment, status };
 
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare(`
+    const updated = db.prepare(`
       UPDATE ${payment.table}
-      SET status = ?, checkout_request_id = ?, mpesa_receipt = ?, updated_at = ?
+      SET status = ?, provider_reference = ?, updated_at = ?
       WHERE id = ? AND status IN ('initiating', 'pending')
-    `).run(status, invoice.invoice_id, status === 'paid' ? (invoice.mpesa_reference || invoice.provider_ref) : null, new Date().toISOString(), payment.id);
-    if (status === 'paid' && payment.kind === 'verification') {
+    `).run(
+      status,
+      status === 'paid' ? String(transaction.id) : null,
+      new Date().toISOString(),
+      payment.id
+    );
+    if (updated.changes && status === 'paid' && payment.kind === 'verification') {
       db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(payment.user_id);
     }
-    if (status === 'paid' && payment.kind === 'beginner_membership') {
+    if (updated.changes && status === 'paid' && payment.kind === 'beginner_membership') {
       db.prepare("UPDATE users SET membership_plan = 'beginner' WHERE id = ?").run(payment.user_id);
     }
     db.exec('COMMIT');
@@ -339,42 +351,41 @@ async function verifyIntaSendInvoice(payment, invoiceId = payment?.checkout_requ
     db.exec('ROLLBACK');
     throw error;
   }
-  return { ...payment, status };
+  return findPaystackPaymentById(payment.id);
 }
 async function handleApi(req, res, url) {
   if (url.pathname === '/api/health' && req.method === 'GET') {
-    const publicKey = process.env.INTASEND_PUBLISHABLE_KEY || '';
-    const paymentEnvironment = publicKey.startsWith('ISPubKey_test_') ? 'test'
-      : publicKey.startsWith('ISPubKey_live_') ? 'live'
-        : publicKey ? 'unknown' : 'not_configured';
+    const paymentEnvironment = process.env.PAYSTACK_SECRET_KEY?.startsWith('sk_live_') ? 'live'
+      : process.env.PAYSTACK_SECRET_KEY?.startsWith('sk_test_') ? 'test'
+        : process.env.PAYSTACK_SECRET_KEY ? 'unknown' : 'not_configured';
     return json(res, 200, {
       ok: true,
-      paymentsConfigured: !intasendConfigError() && Boolean(process.env.INTASEND_WEBHOOK_CHALLENGE),
-      paymentProvider: 'intasend',
+      paymentsConfigured: !paystackConfigError(),
+      paymentProvider: 'paystack',
       paymentEnvironment,
       withdrawalsEnabled: false
     });
   }
 
-  if (url.pathname === '/api/intasend/webhook' && req.method === 'POST') {
+  if (url.pathname === '/api/paystack/webhook' && req.method === 'POST') {
     const rawBody = await readRawBody(req);
-    const challenge = process.env.INTASEND_WEBHOOK_CHALLENGE || '';
-    if (!challenge) return json(res, 503, { error: 'IntaSend webhook challenge is not configured.' });
+    if (!validPaystackSignature(rawBody, req.headers['x-paystack-signature'])) {
+      return json(res, 401, { error: 'Invalid Paystack webhook signature.' });
+    }
     let event;
     try {
       event = JSON.parse(rawBody.toString('utf8'));
     } catch {
-      return json(res, 400, { error: 'Invalid webhook JSON.' });
+      return json(res, 400, { error: 'Invalid Paystack webhook JSON.' });
     }
     if (!event || typeof event !== 'object' || Array.isArray(event)) {
-      return json(res, 400, { error: 'Invalid webhook event.' });
+      return json(res, 400, { error: 'Invalid Paystack webhook event.' });
     }
-    if (!safeEqual(event.challenge || '', challenge)) {
-      return json(res, 401, { error: 'Invalid IntaSend webhook challenge.' });
-    }
-    if (event.topic === 'collection_event' && event.api_ref && event.invoice_id) {
-      const payment = findIntaSendPaymentById(event.api_ref);
-      if (payment) await verifyIntaSendInvoice(payment, event.invoice_id);
+    if (event.event === 'charge.success' && typeof event.data?.reference === 'string') {
+      const fee = db.prepare('SELECT id FROM fee_payments WHERE checkout_request_id = ?').get(event.data.reference);
+      const membership = fee ? null : db.prepare('SELECT id FROM membership_payments WHERE checkout_request_id = ?').get(event.data.reference);
+      const payment = findPaystackPaymentById((fee || membership)?.id);
+      if (payment) await verifyPaystackPayment(payment, event.data.reference);
     }
     return json(res, 200, { received: true });
   }
@@ -519,11 +530,8 @@ async function handleApi(req, res, url) {
     `).get(user.id, new Date(Date.now() - 180_000).toISOString());
     if (pending) return json(res, 409, { error: 'A payment is already pending. Complete checkout or wait for its confirmation.' });
 
-    const configError = intasendConfigError();
+    const configError = paystackConfigError();
     if (configError) return json(res, 503, { error: `Live payment setup is incomplete. ${configError}` });
-    if (!process.env.INTASEND_WEBHOOK_CHALLENGE) {
-      return json(res, 503, { error: 'Live payment setup is incomplete. Set INTASEND_WEBHOOK_CHALLENGE in the server environment.' });
-    }
 
     const paymentId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -540,24 +548,24 @@ async function handleApi(req, res, url) {
     }
 
     try {
-      const result = await initializeIntaSendPayment({ user, amountKes: amount, paymentId });
+      const result = await initializePaystackPayment({ user, amountKes: amount, paymentId, kind });
       db.prepare(`
         UPDATE ${paymentTable}
         SET status = 'pending', checkout_request_id = ?, updated_at = ?
         WHERE id = ?
-      `).run(result.invoiceId, new Date().toISOString(), paymentId);
+      `).run(result.reference, new Date().toISOString(), paymentId);
       return json(res, 202, {
         paymentId,
         kind,
         feeAmountKes: amount,
         checkoutUrl: result.url,
         status: 'pending',
-        message: 'IntaSend checkout initialized. The payment is confirmed by the server before your account is updated.'
+        message: 'Paystack checkout initialized. Your payment will be confirmed by the server before your account is updated.'
       });
     } catch (error) {
       db.prepare(`UPDATE ${paymentTable} SET status = 'initiation_failed', updated_at = ? WHERE id = ?`)
         .run(new Date().toISOString(), paymentId);
-      return json(res, 502, { error: error.message || 'Could not start IntaSend checkout.' });
+      return json(res, 502, { error: error.message || 'Could not start Paystack checkout.' });
     }
   }
 
@@ -595,19 +603,6 @@ async function handleApi(req, res, url) {
     return json(res, 503, { error: 'Withdrawals are unavailable until an authorized payout service is configured. No fee has been charged.' });
   }
 
-  if (url.pathname === '/api/intasend/return' && req.method === 'GET') {
-    const paymentId = url.searchParams.get('payment_id') || '';
-    const payment = findIntaSendPaymentById(paymentId);
-    if (!payment || payment.user_id !== user.id) return json(res, 404, { error: 'Payment not found.' });
-    const confirmed = await verifyIntaSendInvoice(payment);
-    return json(res, 200, {
-      payment: {
-        id: confirmed.id,
-        kind: confirmed.kind,
-        status: confirmed.status
-      }
-    });
-  }
   if (url.pathname === '/api/withdrawals' && req.method === 'GET') {
     const requests = db.prepare(`
       SELECT id, amount_kes, status, created_at FROM withdrawal_requests
@@ -616,18 +611,32 @@ async function handleApi(req, res, url) {
     return json(res, 200, { withdrawals: requests });
   }
 
+  if (url.pathname === '/api/paystack/return' && req.method === 'GET') {
+    const paymentId = url.searchParams.get('payment_id') || '';
+    const payment = findPaystackPaymentById(paymentId);
+    if (!payment || payment.user_id !== user.id) return json(res, 404, { error: 'Payment not found.' });
+    const confirmed = await verifyPaystackPayment(payment);
+    return json(res, 200, {
+      payment: {
+        id: confirmed.id,
+        kind: confirmed.kind,
+        status: confirmed.status
+      }
+    });
+  }
+
   const paymentMatch = url.pathname.match(/^\/api\/payments\/([0-9a-f-]+)$/i);
   if (paymentMatch && req.method === 'GET') {
-    let payment = findIntaSendPaymentById(paymentMatch[1]);
+    let payment = findPaystackPaymentById(paymentMatch[1]);
     if (!payment || payment.user_id !== user.id) return json(res, 404, { error: 'Payment not found.' });
-    if (payment.status === 'pending') payment = await verifyIntaSendInvoice(payment);
+    if (payment.status === 'pending') payment = await verifyPaystackPayment(payment);
     return json(res, 200, {
       payment: {
         id: payment.id,
         kind: payment.kind,
         amount_kes: payment.amount_kes,
         status: payment.status,
-        mpesa_receipt: payment.mpesa_receipt,
+        provider_reference: payment.provider_reference,
         created_at: payment.created_at
       }
     });

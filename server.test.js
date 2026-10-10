@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -7,59 +8,64 @@ const { DatabaseSync } = require('node:sqlite');
 const { once } = require('node:events');
 const test = require('node:test');
 
-test('accounts use server sessions and fees never become earnings', async (t) => {
+test('Paystack payments use fixed amounts and confirmed payments never become earnings', async (t) => {
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'earnchat-test-'));
   const port = 32000 + Math.floor(Math.random() * 20000);
   const databasePath = path.join(tempDirectory, 'test.sqlite');
   const earningsSecret = 'test-only-earnings-secret-that-is-long-enough';
-  const intasendSecret = 'ISSecretKey_test_fake_for_integration_tests';
-  const intasendPublic = 'ISPubKey_test_fake_for_integration_tests';
-  const webhookChallenge = 'test-only-webhook-challenge-value';
-  const mockIntaSend = `
-    const invoices = new Map();
+  const paystackSecret = 'sk_test_fake_for_integration_tests';
+  const mockPaystack = `
+    const transactions = new Map();
     global.fetch = async (input, options = {}) => {
       const url = new URL(input);
-      if (url.hostname !== 'api.intasend.com') throw new Error('Unexpected external request in test');
-      if (url.pathname === '/api/v1/checkout/' && options.method === 'POST') {
-        if (options.headers['X-IntaSend-Public-API-Key'] !== process.env.INTASEND_PUBLISHABLE_KEY) throw new Error('Missing IntaSend publishable key');
+      if (url.hostname !== 'api.paystack.co') throw new Error('Unexpected external request in test');
+      if (options.headers.authorization !== 'Bearer ' + process.env.PAYSTACK_SECRET_KEY) throw new Error('Missing Paystack secret key');
+      if (url.pathname === '/transaction/initialize' && options.method === 'POST') {
         const request = JSON.parse(options.body);
-        const invoiceId = 'invoice-' + request.api_ref;
-        invoices.set(invoiceId, {
-          invoice_id: invoiceId,
-          api_ref: request.api_ref,
+        if (request.currency !== 'KES') throw new Error('Wrong transaction currency');
+        if (!Number.isInteger(request.amount)) throw new Error('Amount is not in minor units');
+        if (!request.metadata.payment_id) throw new Error('Missing internal payment reference');
+        transactions.set(request.reference, {
+          id: '123456789',
+          reference: request.reference,
+          status: 'success',
           currency: request.currency,
-          value: request.amount,
-          state: 'COMPLETE',
-          provider_ref: 'test-provider-ref'
+          amount: request.amount,
+          metadata: request.metadata
         });
-        return new Response(JSON.stringify({ id: invoiceId, url: 'https://sandbox.intasend.com/checkout/test', amount: request.amount, currency: request.currency, paid: false }), {
-          status: 200,
+        return new Response(JSON.stringify({
+          status: true,
+          message: 'Authorization URL created',
+          data: {
+            authorization_url: 'https://checkout.paystack.com/test',
+            access_code: 'test-access-code',
+            reference: request.reference
+          }
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      const match = url.pathname.match(/^\\/transaction\\/verify\\/(.+)$/);
+      if (match && options.method !== 'POST') {
+        const transaction = transactions.get(decodeURIComponent(match[1]));
+        return new Response(JSON.stringify(transaction
+          ? { status: true, message: 'Verification successful', data: transaction }
+          : { status: false, message: 'Transaction not found' }), {
+          status: transaction ? 200 : 404,
           headers: { 'content-type': 'application/json' }
         });
       }
-      if (url.pathname === '/api/v1/payment/status/' && options.method === 'POST') {
-        if (options.headers.authorization !== 'Bearer ' + process.env.INTASEND_SECRET_KEY) throw new Error('Missing IntaSend secret key');
-        const { invoice_id: invoiceId } = JSON.parse(options.body);
-        const invoice = invoices.get(invoiceId);
-        return new Response(JSON.stringify(invoice ? { invoice } : { detail: 'Invoice not found' }), {
-          status: invoice ? 200 : 404,
-          headers: { 'content-type': 'application/json' }
-        });
-      }
-      return new Response(JSON.stringify({ detail: 'Unknown mock transaction' }), { status: 404 });
+      return new Response(JSON.stringify({ status: false, message: 'Unknown mock transaction' }), { status: 404 });
     };
     require('./server.js');
-  `;  const child = spawn(process.execPath, ['-e', mockIntaSend], {
+  `;
+  const child = spawn(process.execPath, ['-e', mockPaystack], {
     cwd: __dirname,
     env: {
       ...process.env,
       PORT: String(port),
       DB_PATH: databasePath,
       SESSION_SECRET: 'test-only-session-secret-that-is-long-enough',
-      INTASEND_PUBLISHABLE_KEY: intasendPublic,
-      INTASEND_SECRET_KEY: intasendSecret,
-      INTASEND_CALLBACK_URL: 'https://earnchat.example/',
-      INTASEND_WEBHOOK_CHALLENGE: webhookChallenge,
+      PAYSTACK_SECRET_KEY: paystackSecret,
+      PAYSTACK_CALLBACK_URL: 'https://earnchat.example/',
       EARNINGS_ADMIN_SECRET: earningsSecret
     },
     stdio: ['ignore', 'ignore', 'pipe']
@@ -90,10 +96,10 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   }
   assert.equal(ready, true, `Server did not start: ${stderr}`);
   const health = await (await fetch(`${baseUrl}/api/health`)).json();
-  assert.equal(health.paymentProvider, 'intasend');
+  assert.equal(health.paymentProvider, 'paystack');
   assert.equal(health.paymentsConfigured, true);
   assert.equal(health.paymentEnvironment, 'test');
-  assert.equal(JSON.stringify(health).includes(intasendSecret), false);
+  assert.equal(JSON.stringify(health).includes(paystackSecret), false);
 
   const registration = await fetch(`${baseUrl}/api/register`, {
     method: 'POST',
@@ -126,14 +132,18 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   const paymentResponse = await fetch(`${baseUrl}/api/payments`, {
     method: 'POST',
     headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'verification' })
+    body: JSON.stringify({ kind: 'verification', amountKes: 1 })
   });
   assert.equal(paymentResponse.status, 202);
   const verificationPayment = await paymentResponse.json();
   assert.equal(verificationPayment.feeAmountKes, 150);
-  assert.equal(verificationPayment.checkoutUrl, 'https://sandbox.intasend.com/checkout/test');
+  assert.equal(verificationPayment.checkoutUrl, 'https://checkout.paystack.com/test');
 
   let testDb = new DatabaseSync(databasePath);
+  const verificationRow = testDb.prepare('SELECT * FROM fee_payments WHERE id = ?').get(verificationPayment.paymentId);
+  assert.equal(verificationRow.amount_kes, 150);
+  assert.match(verificationRow.checkout_request_id, /^ec_[0-9a-f]{32}$/);
+
   const secondRegistration = await fetch(`${baseUrl}/api/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -147,20 +157,34 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   const secondCookie = secondRegistration.headers.get('set-cookie').split(';')[0];
   const secondUser = (await secondRegistration.json()).user;
   testDb.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(secondUser.id);
-  testDb.close();
-
-  testDb = new DatabaseSync(databasePath);
   testDb.prepare('UPDATE fee_payments SET amount_kes = 151 WHERE id = ?').run(verificationPayment.paymentId);
   testDb.close();
-  const mismatchedPayment = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
-  assert.equal(mismatchedPayment.payment.status, 'pending');
+
+  const webhookUrl = `${baseUrl}/api/paystack/webhook`;
+  const verificationWebhookBody = JSON.stringify({
+    event: 'charge.success',
+    data: { reference: verificationRow.checkout_request_id }
+  });
+  const wrongSignatureWebhook = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-paystack-signature': '0'.repeat(128) },
+    body: verificationWebhookBody
+  });
+  assert.equal(wrongSignatureWebhook.status, 401);
+  const stillPending = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
+  assert.equal(stillPending.payment.status, 'pending');
+
   testDb = new DatabaseSync(databasePath);
   testDb.prepare('UPDATE fee_payments SET amount_kes = 150 WHERE id = ?').run(verificationPayment.paymentId);
   testDb.close();
-
-  const verificationReturn = await fetch(`${baseUrl}/api/intasend/return?payment_id=${verificationPayment.paymentId}`, { headers: { cookie } });
+  const verificationReturn = await fetch(`${baseUrl}/api/paystack/return?payment_id=${verificationPayment.paymentId}`, { headers: { cookie } });
   assert.equal(verificationReturn.status, 200);
   assert.equal((await verificationReturn.json()).payment.status, 'paid');
+  const afterFees = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json();
+  assert.equal(afterFees.user.verified, true);
+  assert.equal(afterFees.user.earningsBalanceKes, 0);
+  assert.equal(afterFees.user.paidFeesKes, 150);
+  assert.equal(afterFees.user.membershipPlan, null);
 
   const membershipResponse = await fetch(`${baseUrl}/api/payments`, {
     method: 'POST',
@@ -169,30 +193,24 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   });
   assert.equal(membershipResponse.status, 202);
   const membershipPayment = await membershipResponse.json();
-  const webhookBody = JSON.stringify({
-    topic: 'collection_event',
-    challenge: 'wrong-challenge',
-    invoice_id: 'invoice-' + membershipPayment.paymentId,
-    api_ref: membershipPayment.paymentId,
-    state: 'COMPLETE'
+  assert.equal(membershipPayment.feeAmountKes, 499);
+  testDb = new DatabaseSync(databasePath);
+  const membershipRow = testDb.prepare('SELECT * FROM membership_payments WHERE id = ?').get(membershipPayment.paymentId);
+  assert.equal(membershipRow.amount_kes, 499);
+  testDb.close();
+  const membershipWebhookBody = JSON.stringify({
+    event: 'charge.success',
+    data: { reference: membershipRow.checkout_request_id }
   });
-  const badWebhook = await fetch(`${baseUrl}/api/intasend/webhook`, {
+  const membershipWebhook = await fetch(webhookUrl, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: webhookBody
-  });
-  assert.equal(badWebhook.status, 401);
-  const membershipWebhook = await fetch(`${baseUrl}/api/intasend/webhook`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...JSON.parse(webhookBody), challenge: webhookChallenge })
+    headers: {
+      'content-type': 'application/json',
+      'x-paystack-signature': crypto.createHmac('sha512', paystackSecret).update(membershipWebhookBody).digest('hex')
+    },
+    body: membershipWebhookBody
   });
   assert.equal(membershipWebhook.status, 200);
-  const afterFees = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json();
-  assert.equal(afterFees.user.verified, true);
-  assert.equal(afterFees.user.earningsBalanceKes, 0);
-  assert.equal(afterFees.user.paidFeesKes, 150);
-  assert.equal(afterFees.user.membershipPlan, null);
   const membershipDashboard = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie: secondCookie } })).json();
   assert.equal(membershipDashboard.user.membershipPlan, 'beginner');
   assert.equal(membershipDashboard.user.membershipFeesKes, 499);
@@ -206,7 +224,7 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   const duplicateVerification = await fetch(`${baseUrl}/api/payments`, {
     method: 'POST',
     headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'verification' })
+    body: JSON.stringify({ kind: 'verification', phone: '0712345678' })
   });
   assert.equal(duplicateVerification.status, 409);
   assert.equal((await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json()).user.membershipPlan, null);
@@ -257,7 +275,7 @@ test('accounts use server sessions and fees never become earnings', async (t) =>
   const disabledFeePayment = await fetch(`${baseUrl}/api/payments`, {
     method: 'POST',
     headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'withdrawal_fee' })
+    body: JSON.stringify({ kind: 'withdrawal_fee', phone: '0712345678' })
   });
   assert.equal(disabledFeePayment.status, 503);
   assert.match((await disabledFeePayment.json()).error, /disabled until an authorized payout service/);
