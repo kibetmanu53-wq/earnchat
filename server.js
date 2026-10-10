@@ -238,156 +238,178 @@ function userPayload(user) {
   };
 }
 
-function paystackConfigError() {
-  if (!process.env.PAYSTACK_SECRET_KEY) return 'Set PAYSTACK_SECRET_KEY in the server environment.';
-  if (!/^sk_(test|live)_/.test(process.env.PAYSTACK_SECRET_KEY)) {
-    return 'PAYSTACK_SECRET_KEY must be a Paystack test or live secret key.';
-  }
-  if (!process.env.PAYSTACK_CALLBACK_URL) return 'Set PAYSTACK_CALLBACK_URL to your public website URL.';
+function mpesaConfigError() {
+  if (!process.env.MPESA_CONSUMER_KEY) return 'Set MPESA_CONSUMER_KEY in the server environment.';
+  if (!process.env.MPESA_CONSUMER_SECRET) return 'Set MPESA_CONSUMER_SECRET in the server environment.';
+  if (!process.env.MPESA_SHORTCODE || !/^\d+$/.test(process.env.MPESA_SHORTCODE)) return 'Set MPESA_SHORTCODE to your numeric Safaricom Paybill number.';
+  if (!process.env.MPESA_PASSKEY) return 'Set MPESA_PASSKEY in the server environment.';
+  if (!process.env.MPESA_CALLBACK_URL) return 'Set MPESA_CALLBACK_URL to the public M-Pesa callback URL.';
+  if (!['sandbox', 'production'].includes(process.env.MPESA_ENVIRONMENT)) return 'Set MPESA_ENVIRONMENT to sandbox or production.';
   try {
-    const callback = new URL(process.env.PAYSTACK_CALLBACK_URL);
-    if (callback.protocol !== 'https:' && (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1'].includes(callback.hostname))) {
-      return 'PAYSTACK_CALLBACK_URL must use HTTPS.';
-    }
+    const callback = new URL(process.env.MPESA_CALLBACK_URL);
+    if (callback.protocol !== 'https:' && (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1'].includes(callback.hostname))) return 'MPESA_CALLBACK_URL must use HTTPS.';
   } catch {
-    return 'PAYSTACK_CALLBACK_URL must be a valid URL.';
+    return 'MPESA_CALLBACK_URL must be a valid URL.';
   }
   return null;
 }
 
-async function paystackRequest(endpoint, options = {}) {
-  const response = await fetch(`https://api.paystack.co${endpoint}`, {
-    ...options,
-    headers: {
-      authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
-      ...options.headers
-    }
+function mpesaApiBase() {
+  return process.env.MPESA_ENVIRONMENT === 'sandbox' ? 'https://sandbox.safaricom.co.ke' : 'https://api.safaricom.co.ke';
+}
+
+function normalizeKenyanPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  const phone = digits.startsWith('0') ? '254' + digits.slice(1)
+    : digits.startsWith('7') || digits.startsWith('1') ? '254' + digits : digits;
+  return /^254[17]\d{8}$/.test(phone) ? phone : null;
+}
+
+let mpesaAccessToken;
+let mpesaTokenExpiresAt = 0;
+
+async function getMpesaAccessToken() {
+  if (mpesaAccessToken && Date.now() < mpesaTokenExpiresAt) return mpesaAccessToken;
+  const credentials = Buffer.from(process.env.MPESA_CONSUMER_KEY + ':' + process.env.MPESA_CONSUMER_SECRET).toString('base64');
+  const response = await fetch(mpesaApiBase() + '/oauth/v1/generate?grant_type=client_credentials', {
+    headers: { authorization: 'Basic ' + credentials }
   });
   const body = await response.json();
-  if (!response.ok || body.status !== true) {
-    throw new Error(body.message || 'Paystack could not complete the transaction request.');
-  }
+  if (!response.ok || typeof body.access_token !== 'string' || !body.access_token) throw new Error(body.errorMessage || 'Safaricom could not authorize the payment request.');
+  mpesaAccessToken = body.access_token;
+  mpesaTokenExpiresAt = Date.now() + Math.max(0, Number(body.expires_in || 0) - 30) * 1000;
+  return mpesaAccessToken;
+}
+
+async function mpesaRequest(endpoint, payload) {
+  const token = await getMpesaAccessToken();
+  const response = await fetch(mpesaApiBase() + endpoint, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.errorMessage || body.ResponseDescription || 'Safaricom could not complete the M-Pesa request.');
   return body;
 }
 
-async function initializePaystackPayment({ user, amountKes, paymentId, kind }) {
-  const callback = new URL(process.env.PAYSTACK_CALLBACK_URL);
-  callback.searchParams.set('payment', 'paystack');
-  callback.searchParams.set('payment_id', paymentId);
-  const reference = `ec_${paymentId.replaceAll('-', '')}`;
-  const result = await paystackRequest('/transaction/initialize', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: user.email,
-      amount: amountKes * 100,
-      currency: 'KES',
-      reference,
-      callback_url: callback.toString(),
-      metadata: { payment_id: paymentId, kind }
-    })
-  });
-  let checkoutUrl;
-  try {
-    checkoutUrl = new URL(result.data?.authorization_url);
-  } catch {
-    throw new Error('Paystack returned an invalid checkout URL.');
-  }
-  if (checkoutUrl.protocol !== 'https:'
-    || checkoutUrl.hostname !== 'checkout.paystack.com'
-    || result.data.reference !== reference) {
-    throw new Error('Paystack returned an invalid checkout response.');
-  }
-  return { reference, url: checkoutUrl.toString() };
+function mpesaTimestamp() {
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).map(({ type, value }) => [type, value]));
+  return values.year + values.month + values.day + values.hour + values.minute + values.second;
 }
 
-function findPaystackPaymentById(paymentId) {
+function mpesaPassword(timestamp) {
+  return Buffer.from(process.env.MPESA_SHORTCODE + process.env.MPESA_PASSKEY + timestamp).toString('base64');
+}
+
+async function initializeMpesaPayment({ amountKes, paymentId, phone }) {
+  const timestamp = mpesaTimestamp();
+  const result = await mpesaRequest('/mpesa/stkpush/v1/processrequest', {
+    BusinessShortCode: process.env.MPESA_SHORTCODE,
+    Password: mpesaPassword(timestamp),
+    Timestamp: timestamp,
+    TransactionType: 'CustomerPayBillOnline',
+    Amount: amountKes,
+    PartyA: phone,
+    PartyB: process.env.MPESA_SHORTCODE,
+    PhoneNumber: phone,
+    CallBackURL: process.env.MPESA_CALLBACK_URL,
+    AccountReference: 'EARNCHAT',
+    TransactionDesc: 'EC' + paymentId.replaceAll('-', '').slice(0, 10)
+  });
+  if (String(result.ResponseCode) !== '0' || typeof result.CheckoutRequestID !== 'string' || !result.CheckoutRequestID || typeof result.MerchantRequestID !== 'string' || !result.MerchantRequestID) {
+    throw new Error(result.ResponseDescription || 'Safaricom returned an invalid STK Push response.');
+  }
+  return { checkoutRequestId: result.CheckoutRequestID, merchantRequestId: result.MerchantRequestID };
+}
+
+function findMpesaPaymentById(paymentId) {
   const fee = db.prepare('SELECT * FROM fee_payments WHERE id = ?').get(paymentId);
   if (fee) return { ...fee, table: 'fee_payments', kind: fee.kind };
   const membership = db.prepare('SELECT * FROM membership_payments WHERE id = ?').get(paymentId);
   return membership ? { ...membership, table: 'membership_payments', kind: 'beginner_membership' } : null;
 }
 
-function validPaystackSignature(rawBody, signature) {
-  if (!process.env.PAYSTACK_SECRET_KEY || typeof signature !== 'string' || !/^[0-9a-f]{128}$/i.test(signature)) return false;
-  const expected = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest();
-  const actual = Buffer.from(signature, 'hex');
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+function callbackMetadata(callback) {
+  const items = callback.CallbackMetadata?.Item;
+  if (!Array.isArray(items)) return {};
+  return Object.fromEntries(items.filter((item) => item && typeof item.Name === 'string').map((item) => [item.Name, item.Value]));
 }
 
-async function verifyPaystackPayment(payment, reference = payment?.checkout_request_id) {
-  if (!payment || typeof reference !== 'string' || !reference || payment.status === 'paid') return payment;
-  const result = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`);
-  const transaction = result.data;
-  if (!transaction
-    || transaction.reference !== reference
-    || transaction.metadata?.payment_id !== payment.id) return payment;
-  const status = transaction.status === 'success'
-    && transaction.currency === 'KES'
-    && Number(transaction.amount) === payment.amount_kes * 100 ? 'paid'
-    : ['failed', 'abandoned'].includes(transaction.status) ? 'failed' : payment.status;
-  if (status === payment.status) return { ...payment, status };
+async function queryMpesaPayment(payment) {
+  const timestamp = mpesaTimestamp();
+  return mpesaRequest('/mpesa/stkpushquery/v1/query', {
+    BusinessShortCode: process.env.MPESA_SHORTCODE,
+    Password: mpesaPassword(timestamp),
+    Timestamp: timestamp,
+    CheckoutRequestID: payment.checkout_request_id
+  });
+}
 
+async function verifyMpesaPayment(payment, callback = null) {
+  if (!payment || !payment.checkout_request_id || payment.status === 'paid' || !callback) return payment;
+  const metadata = callbackMetadata(callback);
+  const callbackSucceeded = String(callback.ResultCode) === '0';
+  if (callbackSucceeded && (
+    Number(metadata.Amount) !== payment.amount_kes
+    || normalizeKenyanPhone(metadata.PhoneNumber) !== payment.phone
+    || typeof metadata.MpesaReceiptNumber !== 'string'
+    || !metadata.MpesaReceiptNumber
+  )) return payment;
+  const result = await queryMpesaPayment(payment);
+  if (result.CheckoutRequestID && result.CheckoutRequestID !== payment.checkout_request_id) return payment;
+  if (String(result.ResultCode) !== '0') {
+    if (!callbackSucceeded) {
+      db.prepare('UPDATE ' + payment.table + " SET status = 'failed', updated_at = ? WHERE id = ? AND status IN ('initiating', 'pending')").run(new Date().toISOString(), payment.id);
+      return findMpesaPaymentById(payment.id);
+    }
+    return payment;
+  }
+  if (!callbackSucceeded) return payment;
   db.exec('BEGIN IMMEDIATE');
   try {
-    const updated = db.prepare(`
-      UPDATE ${payment.table}
-      SET status = ?, provider_reference = ?, updated_at = ?
-      WHERE id = ? AND status IN ('initiating', 'pending')
-    `).run(
-      status,
-      status === 'paid' ? String(transaction.id) : null,
-      new Date().toISOString(),
-      payment.id
-    );
-    if (updated.changes && status === 'paid' && payment.kind === 'verification') {
-      db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(payment.user_id);
-    }
-    if (updated.changes && status === 'paid' && payment.kind === 'beginner_membership') {
-      db.prepare("UPDATE users SET membership_plan = 'beginner' WHERE id = ?").run(payment.user_id);
-    }
+    const updated = db.prepare("UPDATE " + payment.table + " SET status = 'paid', provider_reference = ?, updated_at = ? WHERE id = ? AND status IN ('initiating', 'pending')")
+      .run(String(metadata.MpesaReceiptNumber), new Date().toISOString(), payment.id);
+    if (updated.changes && payment.kind === 'verification') db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(payment.user_id);
+    if (updated.changes && payment.kind === 'beginner_membership') db.prepare("UPDATE users SET membership_plan = 'beginner' WHERE id = ?").run(payment.user_id);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
   }
-  return findPaystackPaymentById(payment.id);
+  return findMpesaPaymentById(payment.id);
 }
 async function handleApi(req, res, url) {
   if (url.pathname === '/api/health' && req.method === 'GET') {
-    const paymentEnvironment = process.env.PAYSTACK_SECRET_KEY?.startsWith('sk_live_') ? 'live'
-      : process.env.PAYSTACK_SECRET_KEY?.startsWith('sk_test_') ? 'test'
-        : process.env.PAYSTACK_SECRET_KEY ? 'unknown' : 'not_configured';
+    const paymentEnvironment = process.env.MPESA_ENVIRONMENT === 'production' ? 'live'
+      : process.env.MPESA_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'not_configured';
     return json(res, 200, {
       ok: true,
-      paymentsConfigured: !paystackConfigError(),
-      paymentProvider: 'paystack',
+      paymentsConfigured: !mpesaConfigError(),
+      paymentProvider: 'safaricom_mpesa',
       paymentEnvironment,
       withdrawalsEnabled: false
     });
   }
 
-  if (url.pathname === '/api/paystack/webhook' && req.method === 'POST') {
+  if (url.pathname === '/api/mpesa/callback' && req.method === 'POST') {
     const rawBody = await readRawBody(req);
-    if (!validPaystackSignature(rawBody, req.headers['x-paystack-signature'])) {
-      return json(res, 401, { error: 'Invalid Paystack webhook signature.' });
-    }
     let event;
     try {
       event = JSON.parse(rawBody.toString('utf8'));
     } catch {
-      return json(res, 400, { error: 'Invalid Paystack webhook JSON.' });
+      return json(res, 400, { error: 'Invalid M-Pesa callback JSON.' });
     }
-    if (!event || typeof event !== 'object' || Array.isArray(event)) {
-      return json(res, 400, { error: 'Invalid Paystack webhook event.' });
-    }
-    if (event.event === 'charge.success' && typeof event.data?.reference === 'string') {
-      const fee = db.prepare('SELECT id FROM fee_payments WHERE checkout_request_id = ?').get(event.data.reference);
-      const membership = fee ? null : db.prepare('SELECT id FROM membership_payments WHERE checkout_request_id = ?').get(event.data.reference);
-      const payment = findPaystackPaymentById((fee || membership)?.id);
-      if (payment) await verifyPaystackPayment(payment, event.data.reference);
-    }
-    return json(res, 200, { received: true });
+    const callback = event?.Body?.stkCallback;
+    if (!callback || typeof callback.CheckoutRequestID !== 'string') return json(res, 400, { error: 'Invalid M-Pesa callback event.' });
+    const fee = db.prepare('SELECT id FROM fee_payments WHERE checkout_request_id = ?').get(callback.CheckoutRequestID);
+    const membership = fee ? null : db.prepare('SELECT id FROM membership_payments WHERE checkout_request_id = ?').get(callback.CheckoutRequestID);
+    const payment = findMpesaPaymentById((fee || membership)?.id);
+    if (payment) await verifyMpesaPayment(payment, callback);
+    return json(res, 200, { ResultCode: 0, ResultDesc: 'Callback received.' });
   }
   if (!url.pathname.startsWith('/api/')) return false;
   if (req.method !== 'GET' && !requireSameOrigin(req)) return json(res, 403, { error: 'Cross-origin request denied.' });
@@ -519,6 +541,8 @@ async function handleApi(req, res, url) {
     }
     const amount = FEE_AMOUNTS[kind];
     if (!['verification', 'beginner_membership'].includes(kind) || !amount) return json(res, 400, { error: 'Choose a valid payment type.' });
+    const phone = normalizeKenyanPhone(body.phone);
+    if (!phone) return json(res, 400, { error: 'Enter a valid Kenyan M-Pesa phone number, such as 0712345678.' });
     if (kind === 'verification' && user.verified) return json(res, 409, { error: 'This account is already verified.' });
     if (kind === 'beginner_membership' && !user.verified) return json(res, 403, { error: 'Verify your account before purchasing a membership.' });
     if (kind === 'beginner_membership' && user.membership_plan) return json(res, 409, { error: 'A membership plan is already active.' });
@@ -528,9 +552,9 @@ async function handleApi(req, res, url) {
       WHERE user_id = ? AND status IN ('initiating', 'pending') AND created_at > ?
       ORDER BY created_at DESC LIMIT 1
     `).get(user.id, new Date(Date.now() - 180_000).toISOString());
-    if (pending) return json(res, 409, { error: 'A payment is already pending. Complete checkout or wait for its confirmation.' });
+    if (pending) return json(res, 409, { error: 'A payment is already pending. Complete the M-Pesa prompt or wait for its confirmation.' });
 
-    const configError = paystackConfigError();
+    const configError = mpesaConfigError();
     if (configError) return json(res, 503, { error: `Live payment setup is incomplete. ${configError}` });
 
     const paymentId = crypto.randomUUID();
@@ -539,33 +563,32 @@ async function handleApi(req, res, url) {
       db.prepare(`
         INSERT INTO membership_payments(id, user_id, plan, amount_kes, phone, status, created_at, updated_at)
         VALUES (?, ?, 'beginner', ?, ?, 'initiating', ?, ?)
-      `).run(paymentId, user.id, amount, '', now, now);
+      `).run(paymentId, user.id, amount, phone, now, now);
     } else {
       db.prepare(`
         INSERT INTO fee_payments(id, user_id, kind, amount_kes, phone, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'initiating', ?, ?)
-      `).run(paymentId, user.id, kind, amount, '', now, now);
+      `).run(paymentId, user.id, kind, amount, phone, now, now);
     }
 
     try {
-      const result = await initializePaystackPayment({ user, amountKes: amount, paymentId, kind });
+      const result = await initializeMpesaPayment({ amountKes: amount, paymentId, phone });
       db.prepare(`
         UPDATE ${paymentTable}
-        SET status = 'pending', checkout_request_id = ?, updated_at = ?
+        SET status = 'pending', checkout_request_id = ?, merchant_request_id = ?, updated_at = ?
         WHERE id = ?
-      `).run(result.reference, new Date().toISOString(), paymentId);
+      `).run(result.checkoutRequestId, result.merchantRequestId, new Date().toISOString(), paymentId);
       return json(res, 202, {
         paymentId,
         kind,
         feeAmountKes: amount,
-        checkoutUrl: result.url,
         status: 'pending',
-        message: 'Paystack checkout initialized. Your payment will be confirmed by the server before your account is updated.'
+        message: `M-Pesa prompt sent to ${phone}. Enter your PIN only in the official M-Pesa prompt.`
       });
     } catch (error) {
       db.prepare(`UPDATE ${paymentTable} SET status = 'initiation_failed', updated_at = ? WHERE id = ?`)
         .run(new Date().toISOString(), paymentId);
-      return json(res, 502, { error: error.message || 'Could not start Paystack checkout.' });
+      return json(res, 502, { error: error.message || 'Could not start the M-Pesa payment prompt.' });
     }
   }
 
@@ -611,25 +634,11 @@ async function handleApi(req, res, url) {
     return json(res, 200, { withdrawals: requests });
   }
 
-  if (url.pathname === '/api/paystack/return' && req.method === 'GET') {
-    const paymentId = url.searchParams.get('payment_id') || '';
-    const payment = findPaystackPaymentById(paymentId);
-    if (!payment || payment.user_id !== user.id) return json(res, 404, { error: 'Payment not found.' });
-    const confirmed = await verifyPaystackPayment(payment);
-    return json(res, 200, {
-      payment: {
-        id: confirmed.id,
-        kind: confirmed.kind,
-        status: confirmed.status
-      }
-    });
-  }
-
   const paymentMatch = url.pathname.match(/^\/api\/payments\/([0-9a-f-]+)$/i);
   if (paymentMatch && req.method === 'GET') {
-    let payment = findPaystackPaymentById(paymentMatch[1]);
+    let payment = findMpesaPaymentById(paymentMatch[1]);
     if (!payment || payment.user_id !== user.id) return json(res, 404, { error: 'Payment not found.' });
-    if (payment.status === 'pending') payment = await verifyPaystackPayment(payment);
+
     return json(res, 200, {
       payment: {
         id: payment.id,

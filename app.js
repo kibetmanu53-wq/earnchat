@@ -125,20 +125,20 @@ function updateCurrentDate() {
 function configurePaymentModal(kind) {
   state.paymentKind = kind;
   const beginner = kind === 'beginner_membership';
-  document.getElementById('paymentEyebrow').textContent = beginner ? 'Paystack membership checkout' : 'Paystack verification checkout';
+  document.getElementById('paymentEyebrow').textContent = beginner ? 'M-Pesa membership payment' : 'M-Pesa verification payment';
   document.getElementById('paymentTitle').innerHTML = beginner ? 'Choose your<br /><em>membership.</em>' : 'Activate your<br /><em>account.</em>';
   document.getElementById('paymentDescription').textContent = beginner
-    ? 'Continue to Paystack to pay the fixed KSh 499 Beginner fee. Membership activates only after the server verifies payment.'
-    : 'Continue to Paystack to pay the fixed KSh 150 verification fee. Your account activates only after the server verifies payment.';
+    ? 'Pay the fixed KSh 499 Beginner fee using a secure M-Pesa prompt. Membership activates only after Safaricom confirms payment.'
+    : 'Pay the fixed KSh 150 verification fee using a secure M-Pesa prompt. Your account activates only after Safaricom confirms payment.';
   document.getElementById('paymentFeeLabel').textContent = beginner ? 'Beginner membership fee' : 'Verification fee';
   document.getElementById('paymentAmount').textContent = formatKsh(beginner ? 499 : 150);
-  document.getElementById('requestPayment').innerHTML = `Continue to Paystack <span>→</span>`;
-  document.getElementById('paymentCustomer').textContent = `Paystack checkout will use your account email: ${state.account?.email || ''}`;
+  document.getElementById('requestPayment').innerHTML = `Send M-Pesa prompt <span>→</span>`;
+  document.getElementById('paymentCustomer').textContent = 'The STK Push goes to Safaricom Paybill 542542 using account reference EARNCHAT.';
 }
 
 function updateAccountUI() {
   document.querySelector('#profileModal .activation-box small').textContent =
-    'One-time KSh 150 Paystack payment. Status updates only after payment is confirmed by the server.';
+    'One-time KSh 150 M-Pesa payment. Status updates only after Safaricom confirms payment.';
   if (!state.account) {
     document.getElementById('profileDisplayName').textContent = 'Sign in';
     document.getElementById('accountDisplayName').textContent = 'Sign in';
@@ -231,13 +231,13 @@ async function refreshPaymentReadiness() {
   try {
     const health = await apiRequest('/api/health');
     if (!health.paymentsConfigured) {
-      status.textContent = 'Paystack is not connected yet. Add your secret key and public HTTPS callback URL to the server environment.';
+      status.textContent = 'M-Pesa is not connected yet. Safaricom Daraja credentials and a public HTTPS callback are required.';
       status.dataset.state = 'unconfigured';
       return;
     }
-    const environment = health.paymentEnvironment === 'live' ? 'Paystack live key detected'
-      : health.paymentEnvironment === 'test' ? 'Paystack test key detected' : 'Paystack key detected';
-    status.textContent = `${environment}. Confirm your Paystack account is approved for KES and the payment channels you plan to accept.`;
+    const environment = health.paymentEnvironment === 'live' ? 'Safaricom live M-Pesa is configured'
+      : 'Safaricom sandbox M-Pesa is configured';
+    status.textContent = `${environment}. Customers enter their PIN only in the official M-Pesa prompt.`;
     status.dataset.state = health.paymentEnvironment === 'live' ? 'live-key' : 'configured';
   } catch (error) {
     status.textContent = `Could not check payment setup: ${error.message}`;
@@ -248,7 +248,7 @@ async function refreshPaymentReadiness() {
 async function pollPayment(paymentId, attempts = 0) {
   if (attempts >= 40) {
     state.pendingPaymentId = null;
-    showToast('Payment confirmation is still processing. Check your dashboard again shortly before retrying.');
+    showToast('M-Pesa confirmation is still processing. Check your dashboard again shortly before retrying.');
     return;
   }
   await new Promise((resolve) => window.setTimeout(resolve, 3000));
@@ -259,49 +259,21 @@ async function pollPayment(paymentId, attempts = 0) {
       await refreshSession();
       toggleModal(paymentModal, false);
       showToast(payment.kind === 'verification'
-        ? 'Paystack confirmed payment. Your account is verified.'
-        : 'Paystack confirmed payment. Your Beginner membership is active.');
+        ? 'Safaricom confirmed payment. Your account is verified.'
+        : 'Safaricom confirmed payment. Your Beginner membership is active.');
       return;
     }
     if (payment.status === 'failed' || payment.status === 'initiation_failed') {
       state.pendingPaymentId = null;
       await refreshSession();
       toggleModal(paymentModal, false);
-      showToast('Paystack payment was not completed. No fee was marked as paid.');
+      showToast('M-Pesa payment was not completed. No fee was marked as paid.');
       return;
     }
     await pollPayment(paymentId, attempts + 1);
   } catch (error) {
     state.pendingPaymentId = null;
     showToast(`Could not check payment status: ${error.message}`);
-  }
-}
-
-async function handlePaystackReturn() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('payment') !== 'paystack') return;
-  const paymentId = params.get('payment_id') || '';
-  window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
-  if (!paymentId) {
-    showToast('Paystack returned without a payment reference. Check your dashboard before retrying.');
-    return;
-  }
-  try {
-    const { payment } = await apiRequest(`/api/paystack/return?payment_id=${encodeURIComponent(paymentId)}`);
-    if (payment.status === 'paid') {
-      await refreshSession();
-      showToast(payment.kind === 'verification'
-        ? 'Paystack confirmed payment. Your account is verified.'
-        : 'Paystack confirmed payment. Your Beginner membership is active.');
-    } else if (payment.status === 'failed' || payment.status === 'initiation_failed') {
-      showToast('Paystack payment was not completed. No fee was marked as paid.');
-    } else {
-      state.pendingPaymentId = payment.id;
-      showToast('Payment is still processing. We will check the verified transaction status.');
-      pollPayment(payment.id);
-    }
-  } catch (error) {
-    showToast(`Could not confirm Paystack payment: ${error.message}`);
   }
 }
 
@@ -546,7 +518,7 @@ document.getElementById('activateButton').addEventListener('click', () => {
 
 document.getElementById('requestPayment').addEventListener('click', () => {
   if (state.pendingPaymentId) {
-    showToast('A payment request is already pending. Complete Paystack checkout or wait for confirmation.');
+    showToast('A payment request is already pending. Complete the M-Pesa prompt or wait for its confirmation.');
     return;
   }
   if (!state.account) {
@@ -556,14 +528,16 @@ document.getElementById('requestPayment').addEventListener('click', () => {
     toggleModal(accountModal, true);
     return;
   }
+  const phone = document.getElementById('paymentPhone').value;
   const button = document.getElementById('requestPayment');
   button.disabled = true;
   apiRequest('/api/payments', {
     method: 'POST',
-    body: JSON.stringify({ kind: state.paymentKind })
-  }).then(({ checkoutUrl }) => {
-    if (!checkoutUrl) throw new Error('Paystack did not return a checkout URL.');
-    window.location.assign(checkoutUrl);
+    body: JSON.stringify({ kind: state.paymentKind, phone })
+  }).then(({ paymentId, message }) => {
+    state.pendingPaymentId = paymentId;
+    showToast(message || 'M-Pesa prompt sent. Enter your PIN in the official M-Pesa prompt.');
+    pollPayment(paymentId);
   }).catch((error) => {
     showToast(error.message);
   }).finally(() => {
@@ -706,4 +680,3 @@ updateWalletUI();
 setAuthMode('login');
 refreshSession();
 refreshPaymentReadiness();
-handlePaystackReturn();

@@ -17,7 +17,15 @@ services:
         generateValue: true
       - key: EARNINGS_ADMIN_SECRET
         generateValue: true
-      - key: PAYSTACK_SECRET_KEY
+      - key: MPESA_ENVIRONMENT
+        value: sandbox
+      - key: MPESA_SHORTCODE
+        value: "542542"
+      - key: MPESA_CONSUMER_KEY
         sync: false
-      - key: PAYSTACK_CALLBACK_URL
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_CALLBACK_URL
         sync: false

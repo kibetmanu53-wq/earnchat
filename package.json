@@ -2,7 +2,7 @@
   "name": "earnchat",
   "version": "1.0.0",
   "private": true,
-  "description": "EarnChat dashboard with server-side Paystack checkout and eligible chat earnings",
+  "description": "EarnChat dashboard with Safaricom M-Pesa STK Push and eligible chat earnings",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test"

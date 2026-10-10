@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -8,64 +7,54 @@ const { DatabaseSync } = require('node:sqlite');
 const { once } = require('node:events');
 const test = require('node:test');
 
-test('Paystack payments use fixed amounts and confirmed payments never become earnings', async (t) => {
+test('M-Pesa STK payments use fixed prices and confirmed fees never become earnings', async (t) => {
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'earnchat-test-'));
   const port = 32000 + Math.floor(Math.random() * 20000);
   const databasePath = path.join(tempDirectory, 'test.sqlite');
   const earningsSecret = 'test-only-earnings-secret-that-is-long-enough';
-  const paystackSecret = 'sk_test_fake_for_integration_tests';
-  const mockPaystack = `
-    const transactions = new Map();
-    global.fetch = async (input, options = {}) => {
-      const url = new URL(input);
-      if (url.hostname !== 'api.paystack.co') throw new Error('Unexpected external request in test');
-      if (options.headers.authorization !== 'Bearer ' + process.env.PAYSTACK_SECRET_KEY) throw new Error('Missing Paystack secret key');
-      if (url.pathname === '/transaction/initialize' && options.method === 'POST') {
-        const request = JSON.parse(options.body);
-        if (request.currency !== 'KES') throw new Error('Wrong transaction currency');
-        if (!Number.isInteger(request.amount)) throw new Error('Amount is not in minor units');
-        if (!request.metadata.payment_id) throw new Error('Missing internal payment reference');
-        transactions.set(request.reference, {
-          id: '123456789',
-          reference: request.reference,
-          status: 'success',
-          currency: request.currency,
-          amount: request.amount,
-          metadata: request.metadata
-        });
-        return new Response(JSON.stringify({
-          status: true,
-          message: 'Authorization URL created',
-          data: {
-            authorization_url: 'https://checkout.paystack.com/test',
-            access_code: 'test-access-code',
-            reference: request.reference
-          }
-        }), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      const match = url.pathname.match(/^\\/transaction\\/verify\\/(.+)$/);
-      if (match && options.method !== 'POST') {
-        const transaction = transactions.get(decodeURIComponent(match[1]));
-        return new Response(JSON.stringify(transaction
-          ? { status: true, message: 'Verification successful', data: transaction }
-          : { status: false, message: 'Transaction not found' }), {
-          status: transaction ? 200 : 404,
-          headers: { 'content-type': 'application/json' }
-        });
-      }
-      return new Response(JSON.stringify({ status: false, message: 'Unknown mock transaction' }), { status: 404 });
-    };
-    require('./server.js');
-  `;
-  const child = spawn(process.execPath, ['-e', mockPaystack], {
+  const darajaKey = 'daraja-test-consumer-key';
+  const darajaSecret = 'daraja-test-consumer-secret';
+  const mockDaraja = [
+    'const checkouts = new Map();',
+    'global.fetch = async (input, options = {}) => {',
+    '  const url = new URL(input);',
+    "  if (url.hostname !== 'sandbox.safaricom.co.ke') throw new Error('Unexpected external request in test');",
+    "  if (url.pathname === '/oauth/v1/generate') {",
+    "    const expected = 'Basic ' + Buffer.from(process.env.MPESA_CONSUMER_KEY + ':' + process.env.MPESA_CONSUMER_SECRET).toString('base64');",
+    "    if (options.headers.authorization !== expected) throw new Error('Missing Daraja consumer credentials');",
+    "    return new Response(JSON.stringify({ access_token: 'daraja-test-token', expires_in: '3599' }), { status: 200, headers: { 'content-type': 'application/json' } });",
+    '  }',
+    "  if (options.headers.authorization !== 'Bearer daraja-test-token') throw new Error('Missing Daraja access token');",
+    "  if (url.pathname === '/mpesa/stkpush/v1/processrequest') {",
+    '    const request = JSON.parse(options.body);',
+    "    if (request.BusinessShortCode !== process.env.MPESA_SHORTCODE || request.AccountReference !== 'EARNCHAT') throw new Error('Unexpected Paybill details');",
+    "    if (!/^254[17][0-9]{8}$/.test(request.PhoneNumber)) throw new Error('Phone was not normalized');",
+    "    const checkoutRequestId = 'checkout-' + request.TransactionDesc;",
+    '    checkouts.set(checkoutRequestId, request);',
+    "    return new Response(JSON.stringify({ ResponseCode: '0', MerchantRequestID: 'merchant-' + request.TransactionDesc, CheckoutRequestID: checkoutRequestId }), { status: 200, headers: { 'content-type': 'application/json' } });",
+    '  }',
+    "  if (url.pathname === '/mpesa/stkpushquery/v1/query') {",
+    '    const request = JSON.parse(options.body);',
+    '    const found = checkouts.has(request.CheckoutRequestID);',
+    "    return new Response(JSON.stringify(found ? { ResultCode: '0', CheckoutRequestID: request.CheckoutRequestID } : { ResultCode: '1' }), { status: 200, headers: { 'content-type': 'application/json' } });",
+    '  }',
+    "  return new Response(JSON.stringify({ errorMessage: 'Unknown mock transaction' }), { status: 404 });",
+    '};',
+    "require('./server.js');"
+  ].join('\n');
+  const child = spawn(process.execPath, ['-e', mockDaraja], {
     cwd: __dirname,
     env: {
       ...process.env,
       PORT: String(port),
       DB_PATH: databasePath,
       SESSION_SECRET: 'test-only-session-secret-that-is-long-enough',
-      PAYSTACK_SECRET_KEY: paystackSecret,
-      PAYSTACK_CALLBACK_URL: 'https://earnchat.example/',
+      MPESA_ENVIRONMENT: 'sandbox',
+      MPESA_CONSUMER_KEY: darajaKey,
+      MPESA_CONSUMER_SECRET: darajaSecret,
+      MPESA_SHORTCODE: '542542',
+      MPESA_PASSKEY: 'daraja-test-passkey',
+      MPESA_CALLBACK_URL: 'https://earnchat.example/api/mpesa/callback',
       EARNINGS_ADMIN_SECRET: earningsSecret
     },
     stdio: ['ignore', 'ignore', 'pipe']
@@ -86,29 +75,21 @@ test('Paystack payments use fixed amounts and confirmed payments never become ea
     if (child.exitCode !== null) assert.fail(`Server exited early: ${stderr}`);
     try {
       const response = await fetch(`${baseUrl}/api/health`);
-      if (response.ok) {
-        ready = true;
-        break;
-      }
+      if (response.ok) { ready = true; break; }
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
   assert.equal(ready, true, `Server did not start: ${stderr}`);
   const health = await (await fetch(`${baseUrl}/api/health`)).json();
-  assert.equal(health.paymentProvider, 'paystack');
+  assert.equal(health.paymentProvider, 'safaricom_mpesa');
   assert.equal(health.paymentsConfigured, true);
-  assert.equal(health.paymentEnvironment, 'test');
-  assert.equal(JSON.stringify(health).includes(paystackSecret), false);
+  assert.equal(health.paymentEnvironment, 'sandbox');
+  assert.equal(JSON.stringify(health).includes(darajaSecret), false);
 
   const registration = await fetch(`${baseUrl}/api/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      displayName: 'Test User',
-      email: 'test@example.com',
-      password: 'a-safe-test-password'
-    })
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ displayName: 'Test User', email: 'test@example.com', password: 'a-safe-test-password' })
   });
   assert.equal(registration.status, 201);
   const cookie = registration.headers.get('set-cookie').split(';')[0];
@@ -116,70 +97,81 @@ test('Paystack payments use fixed amounts and confirmed payments never become ea
   assert.equal(registered.user.earningsBalanceKes, 0);
   assert.equal(registered.user.availableToWithdrawKes, 0);
   assert.equal(registered.user.paidFeesKes, 0);
-
-  const dashboard = await fetch(`${baseUrl}/api/me`, { headers: { cookie } });
-  assert.equal(dashboard.status, 200);
-  assert.equal((await dashboard.json()).user.verified, false);
-  const anonymousDashboard = await fetch(`${baseUrl}/api/me`);
-  assert.equal(anonymousDashboard.status, 200);
-  assert.equal((await anonymousDashboard.json()).user, null);
+  assert.equal((await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json()).user.verified, false);
+  assert.equal((await (await fetch(`${baseUrl}/api/me`)).json()).user, null);
   assert.equal((await (await fetch(`${baseUrl}/api/membership`, {
-    method: 'POST',
-    headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ plan: 'advanced' })
+    method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ plan: 'advanced' })
   })).json()).error, 'Verify your account before choosing a membership plan.');
+  const invalidPhone = await fetch(`${baseUrl}/api/payments`, {
+    method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'verification', phone: '12345' })
+  });
+  assert.equal(invalidPhone.status, 400);
 
   const paymentResponse = await fetch(`${baseUrl}/api/payments`, {
-    method: 'POST',
-    headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'verification', amountKes: 1 })
+    method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'verification', phone: '0712 345 678', amountKes: 1 })
   });
   assert.equal(paymentResponse.status, 202);
   const verificationPayment = await paymentResponse.json();
   assert.equal(verificationPayment.feeAmountKes, 150);
-  assert.equal(verificationPayment.checkoutUrl, 'https://checkout.paystack.com/test');
-
+  assert.match(verificationPayment.message, /official M-Pesa prompt/);
   let testDb = new DatabaseSync(databasePath);
   const verificationRow = testDb.prepare('SELECT * FROM fee_payments WHERE id = ?').get(verificationPayment.paymentId);
   assert.equal(verificationRow.amount_kes, 150);
-  assert.match(verificationRow.checkout_request_id, /^ec_[0-9a-f]{32}$/);
+  assert.equal(verificationRow.phone, '254712345678');
+  assert.ok(verificationRow.checkout_request_id);
 
   const secondRegistration = await fetch(`${baseUrl}/api/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      displayName: 'Second User',
-      email: 'second@example.com',
-      password: 'another-safe-test-password'
-    })
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ displayName: 'Second User', email: 'second@example.com', password: 'another-safe-test-password' })
   });
   assert.equal(secondRegistration.status, 201);
   const secondCookie = secondRegistration.headers.get('set-cookie').split(';')[0];
   const secondUser = (await secondRegistration.json()).user;
   testDb.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(secondUser.id);
-  testDb.prepare('UPDATE fee_payments SET amount_kes = 151 WHERE id = ?').run(verificationPayment.paymentId);
   testDb.close();
 
-  const webhookUrl = `${baseUrl}/api/paystack/webhook`;
-  const verificationWebhookBody = JSON.stringify({
-    event: 'charge.success',
-    data: { reference: verificationRow.checkout_request_id }
+  const callbackFor = (checkoutRequestId, amount, phone, receipt, resultCode = 0) => ({
+    Body: { stkCallback: {
+      CheckoutRequestID: checkoutRequestId,
+      MerchantRequestID: 'merchant-test',
+      ResultCode: resultCode,
+      ResultDesc: 'The service request is processed successfully.',
+      CallbackMetadata: { Item: [
+        { Name: 'Amount', Value: amount },
+        { Name: 'MpesaReceiptNumber', Value: receipt },
+        { Name: 'PhoneNumber', Value: Number(phone) }
+      ] }
+    } }
   });
-  const wrongSignatureWebhook = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-paystack-signature': '0'.repeat(128) },
-    body: verificationWebhookBody
+  const callbackUrl = `${baseUrl}/api/mpesa/callback`;
+  const wrongAmountCallback = await fetch(callbackUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(callbackFor(verificationRow.checkout_request_id, 149, '254712345678', 'TEST123'))
   });
-  assert.equal(wrongSignatureWebhook.status, 401);
+  assert.equal(wrongAmountCallback.status, 200);
   const stillPending = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
   assert.equal(stillPending.payment.status, 'pending');
-
-  testDb = new DatabaseSync(databasePath);
-  testDb.prepare('UPDATE fee_payments SET amount_kes = 150 WHERE id = ?').run(verificationPayment.paymentId);
-  testDb.close();
-  const verificationReturn = await fetch(`${baseUrl}/api/paystack/return?payment_id=${verificationPayment.paymentId}`, { headers: { cookie } });
-  assert.equal(verificationReturn.status, 200);
-  assert.equal((await verificationReturn.json()).payment.status, 'paid');
+  const wrongPhoneCallback = await fetch(callbackUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(callbackFor(verificationRow.checkout_request_id, 150, '254700000001', 'TEST123'))
+  });
+  assert.equal(wrongPhoneCallback.status, 200);
+  const failedCallback = await fetch(callbackUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(callbackFor(verificationRow.checkout_request_id, 150, '254712345678', 'TEST123', 1032))
+  });
+  assert.equal(failedCallback.status, 200);
+  const notConfirmed = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
+  assert.equal(notConfirmed.payment.status, 'pending');
+  const verifiedCallback = await fetch(callbackUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(callbackFor(verificationRow.checkout_request_id, 150, '254712345678', 'TEST123'))
+  });
+  assert.equal(verifiedCallback.status, 200);
+  const confirmedPayment = await (await fetch(`${baseUrl}/api/payments/${verificationPayment.paymentId}`, { headers: { cookie } })).json();
+  assert.equal(confirmedPayment.payment.status, 'paid');
   const afterFees = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie } })).json();
   assert.equal(afterFees.user.verified, true);
   assert.equal(afterFees.user.earningsBalanceKes, 0);
@@ -187,9 +179,8 @@ test('Paystack payments use fixed amounts and confirmed payments never become ea
   assert.equal(afterFees.user.membershipPlan, null);
 
   const membershipResponse = await fetch(`${baseUrl}/api/payments`, {
-    method: 'POST',
-    headers: { cookie: secondCookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'beginner_membership' })
+    method: 'POST', headers: { cookie: secondCookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'beginner_membership', phone: '254712345678' })
   });
   assert.equal(membershipResponse.status, 202);
   const membershipPayment = await membershipResponse.json();
@@ -198,23 +189,14 @@ test('Paystack payments use fixed amounts and confirmed payments never become ea
   const membershipRow = testDb.prepare('SELECT * FROM membership_payments WHERE id = ?').get(membershipPayment.paymentId);
   assert.equal(membershipRow.amount_kes, 499);
   testDb.close();
-  const membershipWebhookBody = JSON.stringify({
-    event: 'charge.success',
-    data: { reference: membershipRow.checkout_request_id }
+  const membershipCallback = await fetch(callbackUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(callbackFor(membershipRow.checkout_request_id, 499, '254712345678', 'TEST499'))
   });
-  const membershipWebhook = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-paystack-signature': crypto.createHmac('sha512', paystackSecret).update(membershipWebhookBody).digest('hex')
-    },
-    body: membershipWebhookBody
-  });
-  assert.equal(membershipWebhook.status, 200);
+  assert.equal(membershipCallback.status, 200);
   const membershipDashboard = await (await fetch(`${baseUrl}/api/me`, { headers: { cookie: secondCookie } })).json();
   assert.equal(membershipDashboard.user.membershipPlan, 'beginner');
   assert.equal(membershipDashboard.user.membershipFeesKes, 499);
-
   const untrustedEarning = await fetch(`${baseUrl}/api/internal/eligible-chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
