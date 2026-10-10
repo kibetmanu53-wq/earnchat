@@ -15,17 +15,20 @@ Use Node.js 22.9 or newer. The project uses Node's built-in SQLite module and ha
 
 If PowerShell blocks the `npm` script, run `npm.cmd start` and `npm.cmd test`.
 
-## Deploy on Render
+## Deploy a free preview on Render
 
-The included `render.yaml` Blueprint creates a Node web service, health check, and persistent disk for the SQLite database. The disk requires a paid Render web-service plan; do not remove it for a live deployment, because Render's ordinary filesystem is temporary and contains account, payment, and earnings records. The disk also means this service should run as a single instance.
+The included `render.yaml` Blueprint creates a free Node web service with generated session and earnings secrets. This is a **preview only**: Render's free filesystem is ephemeral, so SQLite accounts, sessions, and records may be lost when the service restarts, sleeps, or redeploys. Do not use real/reused passwords, collect real customer information, or accept payments on this preview. Daraja credentials are intentionally not configured.
 
-1. Push this project, including `render.yaml`, to the GitHub repository you want to deploy. Do not add `.env`, API credentials, or other secrets to GitHub.
-2. In Render, choose **New > Blueprint**, connect GitHub, and select that repository. Review the paid service and persistent-disk cost before creating it.
-3. Add Daraja sandbox consumer key, consumer secret, passkey, and callback URL to Render's environment settings. The sandbox shortcode is `174379`. Set callback URL to `https://<your-render-hostname>/api/mpesa/callback`.
-4. After Safaricom enables production access for Paybill 542542, enter its production credentials directly in Render and set `MPESA_ENVIRONMENT=production`.
-5. Visit `https://<your-render-hostname>/api/health`; confirm `"paymentsConfigured":true` and the expected environment before starting payments.
+1. Push this project, including `render.yaml`, to the GitHub repository you want to deploy. Never add `.env`, API credentials, or other secrets to GitHub.
+2. In Render, choose **New > Blueprint**, connect GitHub, and select the EarnChat repository and `main` branch.
+3. Review the free preview service and click **Apply** to deploy. No card should be needed for the free service; if Render still requests payment details, stop and review the plan shown before proceeding.
+4. When the service is live, open its `onrender.com` URL and `/api/health`. The preview should report `paymentsConfigured:false`.
 
-Render generates the session and earnings secrets from the Blueprint. Never paste Daraja secrets into chat, source files, or GitHub. A deployed app does not itself grant Safaricom production access or guarantee the Paybill is authorized for STK Push.
+This preview has no persistent disk and no working M-Pesa checkout. For real customer accounts and payments, deploy to a paid service with persistent storage, configure a public HTTPS callback, and use Safaricom production credentials only after production approval for Paybill 542542. Sandbox credentials use shortcode `174379` and cannot collect real money. Never paste Daraja secrets into chat, source files, or GitHub.
+
+## Persistent deployment
+
+For a production deployment, the service needs a paid Render plan and persistent disk for SQLite records; that deployment incurs hosting charges. Keep `DB_PATH` on the mounted disk, configure the Daraja credentials and public callback URL as private environment variables, and verify `/api/health` reports the intended payment environment before accepting payments.
 
 ## Payments and policy
 

@@ -2,30 +2,12 @@ services:
   - type: web
     name: earnchat
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
-    disk:
-      name: earnchat-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: DB_PATH
-        value: /var/data/earnchat.sqlite
       - key: SESSION_SECRET
         generateValue: true
       - key: EARNINGS_ADMIN_SECRET
         generateValue: true
-      - key: MPESA_ENVIRONMENT
-        value: sandbox
-      - key: MPESA_SHORTCODE
-        value: "174379"
-      - key: MPESA_CONSUMER_KEY
-        sync: false
-      - key: MPESA_CONSUMER_SECRET
-        sync: false
-      - key: MPESA_PASSKEY
-        sync: false
-      - key: MPESA_CALLBACK_URL
-        sync: false
