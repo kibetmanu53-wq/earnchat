@@ -1,0 +1,23 @@
+{
+  "name": "@earnchat/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earnchat/auth": "*",
+    "@earnchat/db": "*",
+    "@earnchat/domain": "*",
+    "@earnchat/payments": "*",
+    "@earnchat/validation": "*",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@earnchat/config": "*"
+  }
+}

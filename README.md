@@ -1,52 +1,117 @@
 # EarnChat
 
-EarnChat is a chat-and-earn dashboard prototype with server-backed accounts, Safaricom Daraja M-Pesa STK Push payments, and a separate earnings ledger.
+A chat-and-earn platform: users verify with M-Pesa, choose a membership plan, and earn KSh for eligible 5-minute chats. Payments run through Safaricom Daraja (STK Push).
 
-## Run locally
+This is a Turborepo monorepo (npm workspaces). The original single-file prototype is preserved under `legacy/prototype/`.
 
-Use Node.js 22.9 or newer. The project uses Node's built-in SQLite module and has no third-party runtime dependencies.
+## Stack
 
-1. Copy `.env.example` to `.env`.
-2. Generate separate random secrets of at least 32 characters for `SESSION_SECRET` and `EARNINGS_ADMIN_SECRET`.
-3. Create a Daraja app and add its consumer key and consumer secret to the server environment. Never expose these credentials in browser code, chat, or GitHub.
-4. For sandbox testing, use the Daraja sandbox app credentials, sandbox passkey, and shortcode `174379`. Configure the callback URL as a publicly reachable HTTPS URL ending in `/api/mpesa/callback`.
-5. Set `MPESA_ENVIRONMENT=production` only after Safaricom has enabled production access and issued production credentials for Paybill 542542; then change the shortcode to `542542`.
-6. Run `npm start` and open `http://localhost:3000`. Do not open `index.html` directly as a `file:` URL.
+- **Next.js 16** (App Router) + **React 19** + **Tailwind CSS v4** for the web app
+- **Drizzle ORM** over **PostgreSQL**
+- **Zod** for input validation
+- Safaricom **Daraja** M-Pesa client with a mock mode
+- A standalone polling **worker** (`apps/worker`) that reconciles pending payments, with status checks also reconciling active users' payments
 
-If PowerShell blocks the `npm` script, run `npm.cmd start` and `npm.cmd test`.
+## Layout
 
-## Deploy a free preview on Render
+```
+apps/
+  web/        Next.js app: marketing pages, auth, dashboard, API routes
+  worker/     Background worker that confirms pending M-Pesa payments
+packages/
+  config/     Shared tsconfig presets
+  domain/     Constants, phone normalization, earnings math
+  validation/ Zod schemas
+  db/         Drizzle schema + client
+  payments/   Daraja client, mock client, config loading
+  auth/       Password hashing (scrypt) + DB-backed sessions
+  core/       Business services used by web and worker
+legacy/
+  prototype/  The earlier vanilla JS prototype
+```
 
-The included `render.yaml` Blueprint creates a free Node web service with generated session and earnings secrets. This is a **preview only**: Render's free filesystem is ephemeral, so SQLite accounts, sessions, and records may be lost when the service restarts, sleeps, or redeploys. Do not use real/reused passwords, collect real customer information, or accept payments on this preview. Daraja credentials are intentionally not configured.
+Internal packages export TypeScript source directly (no build step); Next transpiles them via `transpilePackages`.
 
-1. Push this project, including `render.yaml`, to the GitHub repository you want to deploy. Never add `.env`, API credentials, or other secrets to GitHub.
-2. In Render, choose **New > Blueprint**, connect GitHub, and select the EarnChat repository and `main` branch.
-3. Review the free preview service and click **Apply** to deploy. No card should be needed for the free service; if Render still requests payment details, stop and review the plan shown before proceeding.
-4. When the service is live, open its `onrender.com` URL and `/api/health`. The preview should report `paymentsConfigured:false`.
+## Requirements
 
-This preview has no persistent disk and no working M-Pesa checkout. For real customer accounts and payments, deploy to a paid service with persistent storage, configure a public HTTPS callback, and use Safaricom production credentials only after production approval for Paybill 542542. Sandbox credentials use shortcode `174379` and cannot collect real money. Never paste Daraja secrets into chat, source files, or GitHub.
+- Node.js 22.9+
+- A PostgreSQL database
+- Optional: Docker for the bundled `docker-compose.yml`
 
-## Persistent deployment
+## Setup
 
-For a production deployment, the service needs a paid Render plan and persistent disk for SQLite records; that deployment incurs hosting charges. Keep `DB_PATH` on the mounted disk, configure the Daraja credentials and public callback URL as private environment variables, and verify `/api/health` reports the intended payment environment before accepting payments.
+1. Install dependencies:
 
-## Payments and policy
+   ```bash
+   npm install
+   ```
 
-- Account verification: fixed one-time KSh 150 M-Pesa STK Push.
-- Beginner membership: fixed KSh 499 M-Pesa STK Push.
-- Advanced: KSh 1,300 per eligible chat.
-- Premium: KSh 2,500 per eligible chat.
-- Withdrawal minimum: KSh 3,500 in eligible available earnings.
-- Withdrawal processing fee: KSh 50, displayed separately. Fee collection and withdrawals remain disabled until an authorized payout integration is available.
+2. Create your environment file:
 
-The customer enters a Kenyan M-Pesa phone number. EarnChat sends the fixed server-defined amount to the official M-Pesa prompt. The customer enters their PIN only in the official M-Pesa interface; EarnChat never asks for or stores it. The STK Push uses Paybill 542542 and account reference `EARNCHAT`.
+   ```bash
+   cp .env.example .env
+   ```
 
-The server receives the Daraja callback and queries Safaricom for the matching checkout request before recording a successful payment. Successful callbacks must include the expected amount, phone, and receipt and match the stored checkout request. The browser cannot declare payment successful. Verification and Beginner membership activate only after confirmation. Payments are recorded separately from earnings.
+3. Fill in `.env`:
+   - `DATABASE_URL` — your PostgreSQL connection string.
+   - `SESSION_SECRET` and `EARNINGS_ADMIN_SECRET` — separate random strings of at least 32 characters (`openssl rand -hex 32`).
+   - M-Pesa settings. Start with `MPESA_MODE=mock` for local development.
 
-Advanced and Premium selections do not charge an upfront membership fee. Earnings are credited only by the protected internal eligible-chat endpoint; local sample conversations never create earnings. Production must call this endpoint only from a trusted server that verifies real chat participants and duration.
+4. Start a local database (optional, if you are not using your own):
 
-Safaricom controls Daraja production approval, shortcode authorization, settlement, and account setup. Paybill details alone do not enable automatic STK Push payments. Real payments require production Daraja credentials and public HTTPS hosting.
+   ```bash
+   docker compose up -d
+   ```
 
-## Tests
+5. Generate and apply the schema:
 
-Run `npm test`. Tests use a temporary SQLite database and mocked Daraja API responses; they do not send real M-Pesa prompts or contact Safaricom.
+   ```bash
+   npm run db:generate
+   npm run db:migrate
+   ```
+
+6. Run everything:
+
+   ```bash
+   npm run dev
+   ```
+
+   Or run the pieces individually:
+
+   ```bash
+   npm run dev --workspace @earnchat/web
+   npm run worker
+   ```
+
+## M-Pesa (Daraja)
+
+- `MPESA_MODE=mock` simulates STK Push locally and succeeds on the first status query: no credentials or real prompts. Use this for development.
+- `MPESA_MODE=live` uses the credentials below. Sandbox uses shortcode `174379`; production uses Paybill `542542`.
+- Set `MPESA_CALLBACK_URL` to a publicly reachable URL ending in `/api/webhooks/mpesa`. Live callbacks must be HTTPS.
+- The customer enters their PIN only in the official M-Pesa prompt. EarnChat never asks for or stores it.
+- Daraja callbacks are unsigned, so the server re-validates amount/phone/receipt and confirms with an authoritative STK Query before activating anything. The browser cannot declare a payment successful.
+- Keep the worker running in production to reconcile payments even when users leave the page. While a user is waiting on the payment screen, status checks also query Daraja so confirmation does not depend on the worker alone.
+
+## Earnings and withdrawals
+
+- Verification: one-time KSh 150.
+- Beginner membership: one-time KSh 499.
+- Advanced: KSh 1,300 per eligible chat. Premium: KSh 2,500 per eligible chat (no upfront fee).
+- Earnings are credited only from the trusted endpoint `POST /api/internal/eligible-chat`, which requires the `x-earnings-admin-secret` header. Sample conversations in the UI never create earnings.
+- Withdrawals are disabled until an authorized M-Pesa payout service is configured. Minimum KSh 3,500 with a separate KSh 50 processing fee.
+
+## Scripts
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Run all dev tasks via Turborepo |
+| `npm run build` | Build all apps |
+| `npm run typecheck` | Type-check all packages |
+| `npm test` | Run unit tests |
+| `npm run db:generate` | Generate Drizzle migrations |
+| `npm run db:migrate` | Apply migrations |
+| `npm run worker` | Run the payments worker |
+
+## Health check
+
+`GET /api/health` reports service status and whether M-Pesa is configured.

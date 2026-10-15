@@ -1,0 +1,20 @@
+{
+  "name": "@earnchat/payments",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earnchat/domain": "*"
+  },
+  "devDependencies": {
+    "@earnchat/config": "*",
+    "vitest": "^5.0.3"
+  }
+}

@@ -2,10 +2,24 @@
   "name": "earnchat",
   "version": "1.0.0",
   "private": true,
-  "description": "EarnChat dashboard with Safaricom M-Pesa STK Push and eligible chat earnings",
+  "description": "EarnChat — chat-and-earn platform with Safaricom M-Pesa (Daraja) payments",
+  "packageManager": "npm@11.16.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js",
-    "test": "node --test"
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "npm run db:generate --workspace @earnchat/db",
+    "db:migrate": "npm run db:migrate --workspace @earnchat/db",
+    "worker": "npm run dev --workspace @earnchat/worker"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.7",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=22.9.0"

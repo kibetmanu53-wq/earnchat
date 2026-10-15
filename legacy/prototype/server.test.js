@@ -135,7 +135,7 @@ test('M-Pesa STK payments use fixed prices and confirmed fees never become earni
   const callbackFor = (checkoutRequestId, amount, phone, receipt, resultCode = 0) => ({
     Body: { stkCallback: {
       CheckoutRequestID: checkoutRequestId,
-      MerchantRequestID: 'merchant-test',
+      MerchantRequestID: checkoutRequestId.replace(/^checkout-/, 'merchant-'),
       ResultCode: resultCode,
       ResultDesc: 'The service request is processed successfully.',
       CallbackMetadata: { Item: [

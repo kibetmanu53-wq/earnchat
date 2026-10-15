@@ -352,10 +352,32 @@ function updateConversationPreview() {
 
     if (content) content.textContent = shortPreview;
     if (time) time.textContent = lastMessage.time || 'Now';
-    if (badge && name === 'Maya Chen') badge.textContent = '2';
+    if (badge) {
+      const unread = countUnread(conv);
+      badge.hidden = unread === 0;
+      badge.textContent = String(unread);
+    }
 
     item.classList.toggle('active', name === state.selectedPerson);
-    item.hidden = false;
+  });
+  filterConversations();
+}
+
+function countUnread(messages) {
+  let count = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].direction !== 'incoming') break;
+    count += 1;
+  }
+  return count;
+}
+
+function filterConversations() {
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  const isBlank = !query;
+  document.querySelectorAll('.conversation-row, .mini-chat').forEach((item) => {
+    const text = (item.textContent || '').toLowerCase();
+    item.hidden = !isBlank && !text.includes(query);
   });
 }
 
@@ -595,16 +617,7 @@ document.getElementById('messageForm').addEventListener('submit', (event) => {
   showToast('Message sent · chat earnings are not enabled yet');
 });
 
-document.getElementById('searchInput').addEventListener('input', (event) => {
-  const query = event.target.value.toLowerCase().trim();
-  const isBlank = !query;
-
-  document.querySelectorAll('.conversation-row, .mini-chat').forEach((item) => {
-    const name = item.dataset.person || '';
-    const text = (item.textContent || '').toLowerCase();
-    item.hidden = !isBlank && !text.includes(query);
-  });
-});
+document.getElementById('searchInput').addEventListener('input', filterConversations);
 
 document.getElementById('newChat').addEventListener('click', () => {
   const order = ['Maya Chen', 'Jon Bell', 'Priya Shah', 'Eli Santos'];

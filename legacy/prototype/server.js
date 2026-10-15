@@ -160,11 +160,54 @@ async function readJson(req) {
 }
 
 function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map((part) => {
+  const cookies = {};
+  for (const part of header.split(';')) {
     const index = part.indexOf('=');
-    if (index < 0) return ['', ''];
-    return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
-  }).filter(([key]) => key));
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    if (!key) continue;
+    const rawValue = part.slice(index + 1).trim();
+    try {
+      cookies[key] = decodeURIComponent(rawValue);
+    } catch {
+      cookies[key] = rawValue;
+    }
+  }
+  return cookies;
+}
+
+function scryptAsync(password, salt, keylen) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
+  });
+}
+
+function clientAddress(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+const rateLimitBuckets = new Map();
+
+function consumeRateLimit(key, limit, windowMs) {
+  const now = Date.now();
+  if (rateLimitBuckets.size > 5000) {
+    for (const [bucketKey, bucket] of rateLimitBuckets) {
+      if (bucket.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+    }
+  }
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (bucket.count >= limit) return false;
+  bucket.count += 1;
+  return true;
 }
 
 function requireSameOrigin(req) {
@@ -353,11 +396,13 @@ async function verifyMpesaPayment(payment, callback = null) {
   if (!payment || !payment.checkout_request_id || payment.status === 'paid' || !callback) return payment;
   const metadata = callbackMetadata(callback);
   const callbackSucceeded = String(callback.ResultCode) === '0';
+  const merchantMatches = !payment.merchant_request_id || callback.MerchantRequestID === payment.merchant_request_id;
   if (callbackSucceeded && (
-    Number(metadata.Amount) !== payment.amount_kes
+    !merchantMatches
+    || Number(metadata.Amount) !== payment.amount_kes
     || normalizeKenyanPhone(metadata.PhoneNumber) !== payment.phone
     || typeof metadata.MpesaReceiptNumber !== 'string'
-    || !metadata.MpesaReceiptNumber
+    || !/^[A-Z0-9]{6,20}$/.test(metadata.MpesaReceiptNumber)
   )) return payment;
   const result = await queryMpesaPayment(payment);
   if (result.CheckoutRequestID && result.CheckoutRequestID !== payment.checkout_request_id) return payment;
@@ -466,6 +511,10 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/register' && req.method === 'POST') {
+    if (!consumeRateLimit(`register:${clientAddress(req)}`, 10, 15 * 60_000)) {
+      res.setHeader('retry-after', '900');
+      return json(res, 429, { error: 'Too many account attempts. Please try again later.' });
+    }
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const displayName = String(body.displayName || '').trim();
@@ -474,7 +523,7 @@ async function handleApi(req, res, url) {
       return json(res, 400, { error: 'Enter a valid email, a display name, and a password of at least 10 characters.' });
     }
     const salt = crypto.randomBytes(16);
-    const passwordHash = crypto.scryptSync(password, salt, 64);
+    const passwordHash = await scryptAsync(password, salt, 64);
     const userId = crypto.randomUUID();
     try {
       db.prepare(`
@@ -494,12 +543,16 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === '/api/login' && req.method === 'POST') {
+    if (!consumeRateLimit(`login:${clientAddress(req)}`, 20, 15 * 60_000)) {
+      res.setHeader('retry-after', '900');
+      return json(res, 429, { error: 'Too many sign-in attempts. Please try again later.' });
+    }
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     if (!user || typeof body.password !== 'string' || body.password.length > 256) return json(res, 401, { error: 'Email or password is incorrect.' });
     const expected = Buffer.from(user.password_hash, 'hex');
-    const actual = crypto.scryptSync(body.password, Buffer.from(user.password_salt, 'hex'), expected.length);
+    const actual = await scryptAsync(body.password, Buffer.from(user.password_salt, 'hex'), expected.length);
     if (!safeEqual(expected, actual)) return json(res, 401, { error: 'Email or password is incorrect.' });
     const token = crypto.randomBytes(32).toString('base64url');
     db.prepare('INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
