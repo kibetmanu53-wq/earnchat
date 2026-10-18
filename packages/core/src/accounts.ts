@@ -12,6 +12,7 @@ import {
 import { hashPassword, verifyPassword } from '@earnchat/auth';
 import { computeAvailableToWithdraw } from '@earnchat/domain';
 import { AppError } from './errors';
+import { listUserPayments, PAYMENT_HISTORY_PAGE_SIZE, type PaymentSummary } from './payments';
 
 export interface CreateAccountInput {
   email: string;
@@ -55,7 +56,8 @@ export interface DashboardUser {
   paidFeesByKind: Record<string, number>;
   membershipFeesKes: number;
   eligibleChats: Array<{ chatReference: string; completedMinutes: number; amountKes: number; createdAt: Date }>;
-  recentPayments: Array<{ id: string; type: string; amountKes: number; status: string; providerReference: string | null; createdAt: Date }>;
+  recentPayments: PaymentSummary[];
+  recentPaymentsNextCursor: string | null;
 }
 
 const RESERVED_WITHDRAWAL_STATUSES = ['fee_pending', 'fee_paid_pending_payout', 'payout_pending'] as const;
@@ -77,19 +79,11 @@ export async function getDashboard(user: User, db: Database = getDb()): Promise<
     .where(and(eq(payments.userId, user.id), eq(payments.status, 'paid')))
     .groupBy(payments.type);
 
-  const recentPayments = await db
-    .select({
-      id: payments.id,
-      type: payments.type,
-      amountKes: payments.amountKes,
-      status: payments.status,
-      providerReference: payments.providerReference,
-      createdAt: payments.createdAt
-    })
-    .from(payments)
-    .where(eq(payments.userId, user.id))
-    .orderBy(desc(payments.createdAt))
-    .limit(20);
+  const { items: recentPayments, nextCursor: recentPaymentsNextCursor } = await listUserPayments(
+    user.id,
+    { limit: PAYMENT_HISTORY_PAGE_SIZE },
+    db
+  );
 
   const chats = await db
     .select({
@@ -121,7 +115,8 @@ export async function getDashboard(user: User, db: Database = getDb()): Promise<
     paidFeesByKind,
     membershipFeesKes,
     eligibleChats: chats,
-    recentPayments
+    recentPayments,
+    recentPaymentsNextCursor
   };
 }
 

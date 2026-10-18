@@ -38,3 +38,9 @@ export async function destroySession(token: string | null | undefined, db?: Data
   const database = db ?? getDb();
   await database.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
 }
+
+/** Revokes every active session for a user (e.g. after a password reset). */
+export async function destroyAllSessions(userId: string, db?: Database): Promise<void> {
+  const database = db ?? getDb();
+  await database.delete(sessions).where(eq(sessions.userId, userId));
+}

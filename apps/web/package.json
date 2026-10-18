@@ -13,6 +13,7 @@
     "@earnchat/core": "*",
     "@earnchat/db": "*",
     "@earnchat/domain": "*",
+    "@earnchat/email": "*",
     "@earnchat/payments": "*",
     "@earnchat/validation": "*",
     "@radix-ui/react-label": "^2.1.16",

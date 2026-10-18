@@ -9,24 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { MembershipActions } from '@/components/wallet/membership-actions';
 import { PaymentCard } from '@/components/wallet/payment-card';
+import { PaymentHistory } from '@/components/wallet/payment-history';
 import { getCurrentUser } from '@/lib/session';
 import { formatKes } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
-
-const PAYMENT_TYPE_LABELS: Record<string, string> = {
-  verification: 'Verification',
-  beginner_membership: 'Beginner membership',
-  withdrawal_fee: 'Withdrawal fee'
-};
-
-const STATUS_VARIANT: Record<string, 'default' | 'accent' | 'muted' | 'destructive'> = {
-  paid: 'accent',
-  pending: 'muted',
-  initiating: 'muted',
-  failed: 'destructive',
-  initiation_failed: 'destructive'
-};
 
 export default async function WalletPage() {
   const user = await getCurrentUser();
@@ -64,27 +51,17 @@ export default async function WalletPage() {
       <section className="mt-8">
         <h2 className="font-display text-lg font-bold">Account activation</h2>
         <div className="mt-3 space-y-3">
-          {user.verified ? (
-            <Card>
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <p className="font-semibold">Identity verification</p>
-                  <p className="text-sm text-muted-foreground">Your account is verified.</p>
-                </div>
-                <Badge variant="accent">Verified</Badge>
-              </CardContent>
-            </Card>
-          ) : (
-            <PaymentCard
-              type="verification"
-              amountKes={FEE_AMOUNTS_KES.verification}
-              title="Verify your account"
-              description="A one-time M-Pesa payment unlocks earning and membership."
-              ctaLabel={`Pay ${formatKes(FEE_AMOUNTS_KES.verification)}`}
-            />
-          )}
+          <Card>
+            <CardContent className="flex items-center justify-between p-5">
+              <div>
+                <p className="font-semibold">Identity verification</p>
+                <p className="text-sm text-muted-foreground">Your account is verified.</p>
+              </div>
+              <Badge variant="accent">Verified</Badge>
+            </CardContent>
+          </Card>
 
-          {user.verified && !user.membershipPlan ? (
+          {!user.membershipPlan ? (
             <PaymentCard
               type="beginner_membership"
               amountKes={FEE_AMOUNTS_KES.beginner_membership}
@@ -103,15 +80,7 @@ export default async function WalletPage() {
           per eligible chat. No upfront fee.
         </p>
         <div className="mt-3">
-          {user.verified ? (
-            <MembershipActions current={user.membershipPlan} />
-          ) : (
-            <Card>
-              <CardContent className="p-5 text-sm text-muted-foreground">
-                Verify your account to choose a membership plan.
-              </CardContent>
-            </Card>
-          )}
+          <MembershipActions current={user.membershipPlan} />
         </div>
       </section>
 
@@ -136,26 +105,10 @@ export default async function WalletPage() {
 
         <div>
           <h2 className="font-display text-lg font-bold">Recent payments</h2>
-          {dashboard.recentPayments.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No payments yet.</p>
-          ) : (
-            <ul className="mt-3 divide-y divide-border rounded-xl border border-border bg-card">
-              {dashboard.recentPayments.map((payment) => (
-                <li key={payment.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{PAYMENT_TYPE_LABELS[payment.type] ?? payment.type}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {payment.providerReference ? `Ref ${payment.providerReference}` : new Date(payment.createdAt).toLocaleDateString('en-KE')}
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="font-semibold">{formatKes(payment.amountKes)}</span>
-                    <Badge variant={STATUS_VARIANT[payment.status] ?? 'muted'}>{payment.status}</Badge>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <PaymentHistory
+            initialPayments={dashboard.recentPayments}
+            initialNextCursor={dashboard.recentPaymentsNextCursor}
+          />
         </div>
       </section>
 

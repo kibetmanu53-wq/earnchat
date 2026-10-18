@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect('/sign-in');
+  if (!user.verified) redirect('/activate');
 
   return (
     <div className="mx-auto flex min-h-screen max-w-7xl bg-background">

@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    enforceRateLimit(request, 'login', 20, 15 * 60_000);
+    await enforceRateLimit(request, 'login', 20, 15 * 60_000);
     const parsed = loginSchema.safeParse(await readJson(request));
     if (!parsed.success) {
       return NextResponse.json({ error: 'Email or password is incorrect.' }, { status: 401 });

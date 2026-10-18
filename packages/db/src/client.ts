@@ -1,6 +1,15 @@
+import net from 'node:net';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import * as schema from './schema';
+
+// Some managed Postgres hosts (e.g. Neon) publish IPv6 addresses. On a host
+// with no IPv6 route, Node's Happy Eyeballs tries them first and the connection
+// stalls instead of failing over. Match the web dev scripts by disabling
+// automatic family selection so the first resolved address is used.
+if (typeof net.setDefaultAutoSelectFamily === 'function') {
+  net.setDefaultAutoSelectFamily(false);
+}
 
 let sqlClient: Sql | null = null;
 let database: PostgresJsDatabase<typeof schema> | null = null;

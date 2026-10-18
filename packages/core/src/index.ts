@@ -14,11 +14,25 @@ export {
   settlePayment,
   confirmPaymentByQuery,
   listPendingPayments,
+  listUserPayments,
   getPayment,
   handleMpesaCallback,
+  PAYMENT_HISTORY_PAGE_SIZE,
+  MAX_PAYMENT_HISTORY_PAGE_SIZE,
   type StartPaymentInput,
   type StartupPaymentType,
-  type MpesaCallbackEvent
+  type MpesaCallbackEvent,
+  type PaymentPage,
+  type PaymentSummary,
+  type ListUserPaymentsOptions
 } from './payments';
 export { creditEligibleChat, type CreditEligibleChatInput, type CreditEligibleChatResult } from './earnings';
 export { listWithdrawals, requestWithdrawal, type WithdrawalSummary } from './withdrawals';
+export {
+  sendEmailVerification,
+  verifyEmailToken,
+  requestPasswordReset,
+  resetPassword,
+  EMAIL_VERIFICATION_TTL_MS,
+  PASSWORD_RESET_TTL_MS
+} from './verification';

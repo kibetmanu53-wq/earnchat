@@ -16,6 +16,7 @@ export const withdrawalStatusEnum = pgEnum('withdrawal_status', [
   'paid',
   'failed'
 ]);
+export const authTokenTypeEnum = pgEnum('auth_token_type', ['verify_email', 'reset_password']);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -23,6 +24,7 @@ export const users = pgTable('users', {
   displayName: text('display_name').notNull(),
   passwordHash: text('password_hash').notNull(),
   verified: boolean('verified').notNull().default(false),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   membershipPlan: membershipPlanEnum('membership_plan'),
   age: integer('age'),
   location: text('location'),
@@ -107,7 +109,33 @@ export const withdrawalRequests = pgTable('withdrawal_requests', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
 
+/** Fixed-window rate-limit counters, shared across instances. */
+export const rateLimitCounters = pgTable('rate_limit_counters', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull().default(0),
+  resetAt: timestamp('reset_at', { withTimezone: true }).notNull()
+});
+
+/** Single-use email verification and password reset tokens (hashed at rest). */
+export const authTokens = pgTable(
+  'auth_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: authTokenTypeEnum('type').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [index('auth_tokens_user_type_idx').on(table.userId, table.type)]
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
+export type AuthToken = typeof authTokens.$inferSelect;
+export type NewAuthToken = typeof authTokens.$inferInsert;

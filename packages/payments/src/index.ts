@@ -28,8 +28,13 @@ export function loadMpesaConfig(env: NodeJS.ProcessEnv = process.env): MpesaConf
   };
 }
 
-export function mpesaConfigError(config: MpesaConfig): string | null {
-  if (config.mode === 'mock') return null;
+export function mpesaConfigError(config: MpesaConfig, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (config.mode === 'mock') {
+    if (env.NODE_ENV === 'production') {
+      return 'MPESA_MODE=mock is not allowed in production because it grants entitlements without a real payment. Set MPESA_MODE=live.';
+    }
+    return null;
+  }
   if (!config.consumerKey) return 'Set MPESA_CONSUMER_KEY.';
   if (!config.consumerSecret) return 'Set MPESA_CONSUMER_SECRET.';
   if (!config.shortcode || !/^\d+$/.test(config.shortcode)) return 'Set MPESA_SHORTCODE to a numeric Paybill.';
@@ -46,9 +51,9 @@ export function mpesaConfigError(config: MpesaConfig): string | null {
   return null;
 }
 
-export function getMpesaClient(config: MpesaConfig = loadMpesaConfig()): MpesaClient {
-  if (config.mode === 'mock') return createMockMpesaClient();
-  const error = mpesaConfigError(config);
+export function getMpesaClient(config: MpesaConfig = loadMpesaConfig(), env: NodeJS.ProcessEnv = process.env): MpesaClient {
+  const error = mpesaConfigError(config, env);
   if (error) throw new MpesaError(`M-Pesa is not configured. ${error}`, 'not_configured');
+  if (config.mode === 'mock') return createMockMpesaClient();
   return createDarajaClient(config);
 }

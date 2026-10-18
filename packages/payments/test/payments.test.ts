@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { darajaPassword, darajaTimestamp, createMockMpesaClient, loadMpesaConfig, mpesaConfigError } from '../src/index';
+import { darajaPassword, darajaTimestamp, createMockMpesaClient, getMpesaClient, loadMpesaConfig, mpesaConfigError } from '../src/index';
 
 describe('daraja helpers', () => {
   it('builds an Africa/Nairobi timestamp of the right shape', () => {
@@ -18,6 +18,18 @@ describe('config', () => {
     const config = loadMpesaConfig({ MPESA_MODE: 'mock' } as NodeJS.ProcessEnv);
     expect(config.mode).toBe('mock');
     expect(mpesaConfigError(config)).toBeNull();
+  });
+
+  it('rejects mock mode in production so entitlements always require a real payment', () => {
+    const config = loadMpesaConfig({ MPESA_MODE: 'mock' } as NodeJS.ProcessEnv);
+    expect(mpesaConfigError(config, { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toMatch(/mock is not allowed in production/i);
+  });
+
+  it('refuses to build a client when mock mode is used in production', () => {
+    const config = loadMpesaConfig({ MPESA_MODE: 'mock' } as NodeJS.ProcessEnv);
+    expect(() => getMpesaClient(config, { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(
+      /mock is not allowed in production/i
+    );
   });
 
   it('flags missing live credentials', () => {

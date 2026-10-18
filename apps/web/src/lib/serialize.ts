@@ -7,6 +7,7 @@ export function publicUser(user: User) {
     email: user.email,
     displayName: user.displayName,
     verified: user.verified,
+    emailVerified: Boolean(user.emailVerifiedAt),
     membershipPlan: user.membershipPlan
   };
 }

@@ -10,8 +10,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:migrate": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-network-family-autoselection\" drizzle-kit migrate",
+    "db:studio": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-network-family-autoselection\" drizzle-kit studio"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",

@@ -14,6 +14,21 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(256)
 });
 
+const authToken = z.string().trim().min(20).max(256);
+
+export const verifyEmailSchema = z.object({
+  token: authToken
+});
+
+export const emailOnlySchema = z.object({
+  email
+});
+
+export const resetPasswordSchema = z.object({
+  token: authToken,
+  password: z.string().min(10, 'Password must be at least 10 characters.').max(256)
+});
+
 export const profileSchema = z.object({
   displayName: z.string().trim().min(2).max(80),
   age: z.coerce.number().int().min(18, 'You must be 18 or older.').max(120).optional(),
@@ -25,6 +40,11 @@ export const profileSchema = z.object({
 export const paymentInitiateSchema = z.object({
   type: z.enum(['verification', 'beginner_membership']),
   phone: z.string().trim().min(9).max(20)
+});
+
+export const paymentHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  cursor: z.string().trim().min(1).max(256).optional()
 });
 
 export const membershipSchema = z.object({
@@ -51,5 +71,7 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ProfileInput = z.infer<typeof profileSchema>;
 export type EligibleChatInput = z.infer<typeof eligibleChatSchema>;
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export { z };
