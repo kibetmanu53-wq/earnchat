@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     '@earnchat/db',
     '@earnchat/domain',
     '@earnchat/email',
+    '@earnchat/logger',
     '@earnchat/payments',
     '@earnchat/validation'
   ]

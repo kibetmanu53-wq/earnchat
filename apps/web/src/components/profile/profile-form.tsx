@@ -58,7 +58,14 @@ export function ProfileForm({ initial }: ProfileFormProps) {
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="displayName">Display name</Label>
-        <Input id="displayName" name="displayName" defaultValue={initial.displayName} required minLength={2} maxLength={80} />
+        <Input
+          id="displayName"
+          name="displayName"
+          defaultValue={initial.displayName}
+          required
+          minLength={2}
+          maxLength={80}
+        />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -67,12 +74,24 @@ export function ProfileForm({ initial }: ProfileFormProps) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="location">Location</Label>
-          <Input id="location" name="location" defaultValue={initial.location ?? ''} maxLength={120} placeholder="Nairobi, KE" />
+          <Input
+            id="location"
+            name="location"
+            defaultValue={initial.location ?? ''}
+            maxLength={120}
+            placeholder="Nairobi, KE"
+          />
         </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="interests">Interests</Label>
-        <Input id="interests" name="interests" defaultValue={initial.interests ?? ''} maxLength={200} placeholder="Music, hiking, startups" />
+        <Input
+          id="interests"
+          name="interests"
+          defaultValue={initial.interests ?? ''}
+          maxLength={200}
+          placeholder="Music, hiking, startups"
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="bio">Bio</Label>

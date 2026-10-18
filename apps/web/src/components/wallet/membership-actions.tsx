@@ -66,9 +66,7 @@ export function MembershipActions({ current }: { current: string | null }) {
         })}
       </div>
       {current === 'beginner' ? (
-        <p className="text-xs text-muted-foreground">
-          A paid Beginner membership is active and cannot be replaced.
-        </p>
+        <p className="text-xs text-muted-foreground">A paid Beginner membership is active and cannot be replaced.</p>
       ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>

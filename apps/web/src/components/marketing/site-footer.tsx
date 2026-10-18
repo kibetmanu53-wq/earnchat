@@ -15,21 +15,42 @@ export function SiteFooter() {
         <div>
           <h4 className="text-sm font-semibold">Product</h4>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            <li><Link href="/how-it-works" className="hover:text-foreground">How it works</Link></li>
-            <li><Link href="/pricing" className="hover:text-foreground">Pricing</Link></li>
-            <li><Link href="/faq" className="hover:text-foreground">FAQ</Link></li>
+            <li>
+              <Link href="/how-it-works" className="hover:text-foreground">
+                How it works
+              </Link>
+            </li>
+            <li>
+              <Link href="/pricing" className="hover:text-foreground">
+                Pricing
+              </Link>
+            </li>
+            <li>
+              <Link href="/faq" className="hover:text-foreground">
+                FAQ
+              </Link>
+            </li>
           </ul>
         </div>
         <div>
           <h4 className="text-sm font-semibold">Account</h4>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            <li><Link href="/sign-up" className="hover:text-foreground">Create account</Link></li>
-            <li><Link href="/sign-in" className="hover:text-foreground">Sign in</Link></li>
+            <li>
+              <Link href="/sign-up" className="hover:text-foreground">
+                Create account
+              </Link>
+            </li>
+            <li>
+              <Link href="/sign-in" className="hover:text-foreground">
+                Sign in
+              </Link>
+            </li>
           </ul>
         </div>
       </div>
       <div className="border-t border-border py-5 text-center text-xs text-muted-foreground">
-        EarnChat is a prototype. M-Pesa payments use Safaricom Daraja. Enter your PIN only in the official M-Pesa prompt.
+        EarnChat is a prototype. M-Pesa payments use Safaricom Daraja. Enter your PIN only in the official M-Pesa
+        prompt.
       </div>
     </footer>
   );

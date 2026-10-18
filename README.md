@@ -102,16 +102,27 @@ Internal packages export TypeScript source directly (no build step); Next transp
 
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Run all dev tasks via Turborepo |
-| `npm run build` | Build all apps |
-| `npm run typecheck` | Type-check all packages |
-| `npm test` | Run unit tests |
-| `npm run db:generate` | Generate Drizzle migrations |
-| `npm run db:migrate` | Apply migrations |
-| `npm run worker` | Run the payments worker |
+| Command               | Description                     |
+| --------------------- | ------------------------------- |
+| `npm run dev`         | Run all dev tasks via Turborepo |
+| `npm run build`       | Build all apps                  |
+| `npm run lint`        | Lint all packages with ESLint   |
+| `npm run format`      | Format the repo with Prettier   |
+| `npm run typecheck`   | Type-check all packages         |
+| `npm test`            | Run unit tests                  |
+| `npm run db:generate` | Generate Drizzle migrations     |
+| `npm run db:migrate`  | Apply migrations                |
+| `npm run worker`      | Run the payments worker         |
+
+CI (`.github/workflows/ci.yml`) runs lint, format check, typecheck, tests, and a
+build on every push and pull request.
 
 ## Health check
 
-`GET /api/health` reports service status and whether M-Pesa is configured.
+`GET /api/health` reports service status, whether M-Pesa is configured, and
+whether email delivery is configured.
+
+## Launching
+
+See [`docs/launch-readiness.md`](docs/launch-readiness.md) for the production
+config checklist and pre-launch verification steps.

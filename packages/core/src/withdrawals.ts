@@ -13,7 +13,12 @@ export interface WithdrawalSummary {
 
 export async function listWithdrawals(userId: string, db: Database = getDb()): Promise<WithdrawalSummary[]> {
   return db
-    .select({ id: withdrawalRequests.id, amountKes: withdrawalRequests.amountKes, status: withdrawalRequests.status, createdAt: withdrawalRequests.createdAt })
+    .select({
+      id: withdrawalRequests.id,
+      amountKes: withdrawalRequests.amountKes,
+      status: withdrawalRequests.status,
+      createdAt: withdrawalRequests.createdAt
+    })
     .from(withdrawalRequests)
     .where(eq(withdrawalRequests.userId, userId))
     .orderBy(desc(withdrawalRequests.createdAt))

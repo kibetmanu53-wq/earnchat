@@ -17,7 +17,9 @@ export default function LandingPage() {
       <section className="relative overflow-hidden">
         <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 sm:px-6 sm:pt-24">
           <div className="mx-auto max-w-3xl text-center">
-            <Badge variant="accent" className="mx-auto">Chat-and-earn, built for Kenya</Badge>
+            <Badge variant="accent" className="mx-auto">
+              Chat-and-earn, built for Kenya
+            </Badge>
             <h1 className="mt-5 font-display text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">
               Good conversations
               <br />
@@ -130,8 +132,8 @@ export default function LandingPage() {
               Your money and your PIN stay protected
             </h2>
             <p className="mt-3 text-sm text-muted-foreground">
-              Payments run through Safaricom Daraja. Every successful transaction is verified against the expected amount,
-              phone number, and receipt before your account is activated.
+              Payments run through Safaricom Daraja. Every successful transaction is verified against the expected
+              amount, phone number, and receipt before your account is activated.
             </p>
           </div>
           <Button asChild size="lg">

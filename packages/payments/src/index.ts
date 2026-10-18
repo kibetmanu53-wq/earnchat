@@ -5,6 +5,7 @@ import { MpesaError, type MpesaClient, type MpesaEnvironment, type MpesaMode } f
 export * from './types';
 export { createDarajaClient, darajaPassword, darajaTimestamp } from './daraja';
 export { createMockMpesaClient } from './mock';
+export { parseIpAllowlist, isIpAllowed } from './webhook-guard';
 
 export interface MpesaConfig {
   mode: MpesaMode;
@@ -42,7 +43,10 @@ export function mpesaConfigError(config: MpesaConfig, env: NodeJS.ProcessEnv = p
   if (!config.callbackUrl) return 'Set MPESA_CALLBACK_URL to the public callback URL.';
   try {
     const callback = new URL(config.callbackUrl);
-    if (callback.protocol !== 'https:' && (config.environment === 'production' || !['localhost', '127.0.0.1'].includes(callback.hostname))) {
+    if (
+      callback.protocol !== 'https:' &&
+      (config.environment === 'production' || !['localhost', '127.0.0.1'].includes(callback.hostname))
+    ) {
       return 'MPESA_CALLBACK_URL must use HTTPS.';
     }
   } catch {
@@ -51,7 +55,10 @@ export function mpesaConfigError(config: MpesaConfig, env: NodeJS.ProcessEnv = p
   return null;
 }
 
-export function getMpesaClient(config: MpesaConfig = loadMpesaConfig(), env: NodeJS.ProcessEnv = process.env): MpesaClient {
+export function getMpesaClient(
+  config: MpesaConfig = loadMpesaConfig(),
+  env: NodeJS.ProcessEnv = process.env
+): MpesaClient {
   const error = mpesaConfigError(config, env);
   if (error) throw new MpesaError(`M-Pesa is not configured. ${error}`, 'not_configured');
   if (config.mode === 'mock') return createMockMpesaClient();

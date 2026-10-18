@@ -8,6 +8,7 @@
     "./schema": "./src/schema.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-network-family-autoselection\" drizzle-kit migrate",

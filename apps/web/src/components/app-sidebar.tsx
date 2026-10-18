@@ -14,9 +14,7 @@ const ITEMS = [
 export function AppSidebar({ variant = 'sidebar' }: { variant?: 'sidebar' | 'bar' }) {
   const pathname = usePathname();
   return (
-    <nav
-      className={cn('flex gap-1', variant === 'sidebar' ? 'flex-col' : 'flex-row items-center justify-around')}
-    >
+    <nav className={cn('flex gap-1', variant === 'sidebar' ? 'flex-col' : 'flex-row items-center justify-around')}>
       {ITEMS.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;

@@ -1,9 +1,4 @@
-import {
-  CHAT_EARNINGS_KES,
-  FEE_AMOUNTS_KES,
-  MINIMUM_WITHDRAWAL_KES,
-  WITHDRAWAL_FEE_KES
-} from '@earnchat/domain';
+import { CHAT_EARNINGS_KES, FEE_AMOUNTS_KES, MINIMUM_WITHDRAWAL_KES, WITHDRAWAL_FEE_KES } from '@earnchat/domain';
 import { getDashboard } from '@earnchat/core';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -121,8 +116,8 @@ export default async function WalletPage() {
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
               Withdraw once you have at least {formatKes(MINIMUM_WITHDRAWAL_KES)} available. A separate{' '}
-              {formatKes(WITHDRAWAL_FEE_KES)} processing fee applies. Withdrawals stay disabled until an authorized M-Pesa
-              payout service is configured.
+              {formatKes(WITHDRAWAL_FEE_KES)} processing fee applies. Withdrawals stay disabled until an authorized
+              M-Pesa payout service is configured.
             </p>
           </CardContent>
         </Card>

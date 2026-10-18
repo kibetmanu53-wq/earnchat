@@ -19,7 +19,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
 
     if (payment.status === 'pending') {
-      payment = await confirmPaymentByQuery(payment.id, getMpesaClient()) ?? payment;
+      payment = (await confirmPaymentByQuery(payment.id, getMpesaClient())) ?? payment;
     }
 
     return jsonOk({

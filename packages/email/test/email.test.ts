@@ -21,14 +21,20 @@ describe('mail config', () => {
 
 describe('templates', () => {
   it('includes the action link in verification email', () => {
-    const { subject, html, text } = verificationEmail({ displayName: 'Amina', url: 'https://app.test/verify-email?token=abc' });
+    const { subject, html, text } = verificationEmail({
+      displayName: 'Amina',
+      url: 'https://app.test/verify-email?token=abc'
+    });
     expect(subject).toMatch(/verify/i);
     expect(html).toContain('https://app.test/verify-email?token=abc');
     expect(text).toContain('https://app.test/verify-email?token=abc');
   });
 
   it('includes the action link in reset email', () => {
-    const { subject, html } = passwordResetEmail({ displayName: 'Amina', url: 'https://app.test/reset-password?token=xyz' });
+    const { subject, html } = passwordResetEmail({
+      displayName: 'Amina',
+      url: 'https://app.test/reset-password?token=xyz'
+    });
     expect(subject).toMatch(/reset/i);
     expect(html).toContain('https://app.test/reset-password?token=xyz');
   });

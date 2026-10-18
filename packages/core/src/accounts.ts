@@ -71,7 +71,9 @@ export async function getDashboard(user: User, db: Database = getDb()): Promise<
   const [reservedRow] = await db
     .select({ total: sql<string>`coalesce(sum(${withdrawalRequests.amountKes}), 0)` })
     .from(withdrawalRequests)
-    .where(and(eq(withdrawalRequests.userId, user.id), inArray(withdrawalRequests.status, [...RESERVED_WITHDRAWAL_STATUSES])));
+    .where(
+      and(eq(withdrawalRequests.userId, user.id), inArray(withdrawalRequests.status, [...RESERVED_WITHDRAWAL_STATUSES]))
+    );
 
   const feeRows = await db
     .select({ type: payments.type, total: sql<string>`coalesce(sum(${payments.amountKes}), 0)` })
@@ -141,7 +143,11 @@ export async function updateProfile(
   return user;
 }
 
-export async function setMembershipPlan(userId: string, plan: 'advanced' | 'premium', db: Database = getDb()): Promise<User> {
+export async function setMembershipPlan(
+  userId: string,
+  plan: 'advanced' | 'premium',
+  db: Database = getDb()
+): Promise<User> {
   const user = await getUserById(userId, db);
   if (!user) throw new AppError('Sign in is required.', 401);
   if (!user.verified) throw new AppError('Verify your account before choosing a membership plan.', 403);

@@ -23,7 +23,11 @@ export const PEOPLE: SamplePerson[] = [
     messages: [
       { from: 'them', text: 'Hey! I saw you’re into weekend hikes. Planning a trip to the coast soon.', time: '10:36' },
       { from: 'you', text: 'That sounds like a plan! Have you tried the trails around Cape Lookout?', time: '10:38' },
-      { from: 'them', text: 'Not yet, but it’s on the list. A little intimidated by the distance though!', time: '10:42' }
+      {
+        from: 'them',
+        text: 'Not yet, but it’s on the list. A little intimidated by the distance though!',
+        time: '10:42'
+      }
     ]
   },
   {

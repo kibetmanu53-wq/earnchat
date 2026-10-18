@@ -13,13 +13,23 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "db:generate": "npm run db:generate --workspace @earnchat/db",
     "db:migrate": "npm run db:migrate --workspace @earnchat/db",
     "worker": "npm run dev --workspace @earnchat/worker"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
     "turbo": "^2.11.7",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2"
   },
   "engines": {
     "node": ">=22.9.0"

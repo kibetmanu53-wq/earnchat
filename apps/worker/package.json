@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-network-family-autoselection\" tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earnchat/core": "*",
     "@earnchat/db": "*",
+    "@earnchat/logger": "*",
     "@earnchat/payments": "*"
   },
   "devDependencies": {

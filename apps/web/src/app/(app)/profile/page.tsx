@@ -26,7 +26,9 @@ export default async function ProfilePage() {
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <p className="font-semibold">{user.email}</p>
-            <p className="text-xs text-muted-foreground">Joined {new Date(user.createdAt).toLocaleDateString('en-KE')}</p>
+            <p className="text-xs text-muted-foreground">
+              Joined {new Date(user.createdAt).toLocaleDateString('en-KE')}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={user.verified ? 'accent' : 'muted'}>{user.verified ? 'Verified' : 'Unverified'}</Badge>

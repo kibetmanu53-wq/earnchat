@@ -20,7 +20,10 @@ export async function POST(request: Request) {
 
     const parsed = profileSchema.safeParse(await readJson(request));
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid profile details.' }, { status: 400 });
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? 'Invalid profile details.' },
+        { status: 400 }
+      );
     }
 
     const updated = await updateProfile(user.id, parsed.data);

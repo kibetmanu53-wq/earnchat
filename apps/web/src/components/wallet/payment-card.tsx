@@ -29,9 +29,12 @@ export function PaymentCard({
   const [message, setMessage] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    },
+    []
+  );
 
   function stopPolling() {
     if (pollTimer.current) {
@@ -80,7 +83,11 @@ export function PaymentCard({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type, phone })
       });
-      const data = (await response.json().catch(() => ({}))) as { paymentId?: string; message?: string; error?: string };
+      const data = (await response.json().catch(() => ({}))) as {
+        paymentId?: string;
+        message?: string;
+        error?: string;
+      };
       if (!response.ok || !data.paymentId) {
         setStatus('failed');
         setMessage(data.error ?? 'Could not start the payment.');
@@ -129,7 +136,9 @@ export function PaymentCard({
               {status === 'sending' ? 'Sending prompt…' : status === 'pending' ? 'Waiting for confirmation…' : ctaLabel}
             </Button>
             {message ? (
-              <p className={`text-sm ${status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>
+              <p className={`text-sm ${status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {message}
+              </p>
             ) : null}
             <p className="text-xs text-muted-foreground">
               Enter your PIN only in the official M-Pesa prompt on your phone. EarnChat never sees your PIN.

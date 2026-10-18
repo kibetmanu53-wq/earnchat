@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AppError } from '@earnchat/core';
+import { logger } from '@earnchat/logger';
 
 export function jsonOk<T>(data: T, status = 200) {
   return NextResponse.json(data, { status, headers: { 'cache-control': 'no-store' } });
@@ -9,7 +10,7 @@ export function jsonError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
   }
-  console.error('Unhandled API error:', error);
+  logger.error('Unhandled API error', { error });
   return NextResponse.json({ error: 'The server could not complete this request.' }, { status: 500 });
 }
 

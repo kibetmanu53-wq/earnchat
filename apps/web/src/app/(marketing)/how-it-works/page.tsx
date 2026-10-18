@@ -14,7 +14,8 @@ export default function HowItWorksPage() {
         From sign-up to payout in three steps
       </h1>
       <p className="mt-4 max-w-2xl text-muted-foreground">
-        EarnChat is built around eligible conversations. Here is exactly what happens from the moment you create an account.
+        EarnChat is built around eligible conversations. Here is exactly what happens from the moment you create an
+        account.
       </p>
 
       <div className="mt-12 space-y-6">

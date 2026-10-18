@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { darajaPassword, darajaTimestamp, createMockMpesaClient, getMpesaClient, loadMpesaConfig, mpesaConfigError } from '../src/index';
+import {
+  darajaPassword,
+  darajaTimestamp,
+  createMockMpesaClient,
+  getMpesaClient,
+  loadMpesaConfig,
+  mpesaConfigError,
+  parseIpAllowlist,
+  isIpAllowed
+} from '../src/index';
 
 describe('daraja helpers', () => {
   it('builds an Africa/Nairobi timestamp of the right shape', () => {
@@ -22,7 +31,9 @@ describe('config', () => {
 
   it('rejects mock mode in production so entitlements always require a real payment', () => {
     const config = loadMpesaConfig({ MPESA_MODE: 'mock' } as NodeJS.ProcessEnv);
-    expect(mpesaConfigError(config, { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toMatch(/mock is not allowed in production/i);
+    expect(mpesaConfigError(config, { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toMatch(
+      /mock is not allowed in production/i
+    );
   });
 
   it('refuses to build a client when mock mode is used in production', () => {
@@ -35,6 +46,36 @@ describe('config', () => {
   it('flags missing live credentials', () => {
     const config = loadMpesaConfig({ MPESA_MODE: 'live' } as NodeJS.ProcessEnv);
     expect(mpesaConfigError(config)).toMatch(/MPESA_CONSUMER_KEY/);
+  });
+});
+
+describe('webhook IP allowlist', () => {
+  it('disables the check when no allowlist is configured', () => {
+    expect(isIpAllowed('203.0.113.9', parseIpAllowlist(undefined))).toBe(true);
+    expect(isIpAllowed(null, parseIpAllowlist(''))).toBe(true);
+  });
+
+  it('parses and trims a comma-separated list', () => {
+    expect(parseIpAllowlist(' 1.2.3.4 , 5.6.7.0/24 ,')).toEqual(['1.2.3.4', '5.6.7.0/24']);
+  });
+
+  it('matches exact IPs', () => {
+    const list = parseIpAllowlist('203.0.113.9');
+    expect(isIpAllowed('203.0.113.9', list)).toBe(true);
+    expect(isIpAllowed('203.0.113.10', list)).toBe(false);
+  });
+
+  it('matches IPv4 CIDR ranges', () => {
+    const list = parseIpAllowlist('196.201.214.0/24');
+    expect(isIpAllowed('196.201.214.200', list)).toBe(true);
+    expect(isIpAllowed('196.201.215.1', list)).toBe(false);
+  });
+
+  it('rejects a missing or malformed client IP when an allowlist is set', () => {
+    const list = parseIpAllowlist('203.0.113.9');
+    expect(isIpAllowed(null, list)).toBe(false);
+    expect(isIpAllowed('not-an-ip', list)).toBe(false);
+    expect(isIpAllowed('203.0.113.9', parseIpAllowlist('999.1.1.1/24'))).toBe(false);
   });
 });
 

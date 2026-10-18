@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  chatEarningAmount,
-  computeAvailableToWithdraw,
-  normalizeKenyanPhone,
-  canEarnFromChat
-} from '../src/index';
+import { chatEarningAmount, computeAvailableToWithdraw, normalizeKenyanPhone, canEarnFromChat } from '../src/index';
 
 describe('normalizeKenyanPhone', () => {
   it('normalizes local, international and spaced formats', () => {

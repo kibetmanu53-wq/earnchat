@@ -6,6 +6,7 @@
     "dev": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --no-network-family-autoselection\" next dev",
     "build": "next build",
     "start": "next start",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "@earnchat/db": "*",
     "@earnchat/domain": "*",
     "@earnchat/email": "*",
+    "@earnchat/logger": "*",
     "@earnchat/payments": "*",
     "@earnchat/validation": "*",
     "@radix-ui/react-label": "^2.1.16",

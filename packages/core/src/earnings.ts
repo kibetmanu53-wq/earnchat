@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { earningsLedger, eligibleChats, getDb, users, type Database } from '@earnchat/db';
 import { canEarnFromChat, chatEarningAmount } from '@earnchat/domain';
 import { AppError } from './errors';
+import { AUDIT_ACTIONS, recordAudit } from './audit';
 
 export interface CreditEligibleChatInput {
   userId: string;
@@ -60,7 +61,21 @@ export async function creditEligibleChat(
         amountKes: amount,
         source: `eligible_chat:${chat?.chatReference ?? input.chatReference}`
       });
-      return { chatReference: input.chatReference, amountKes: amount, membershipPlan: user.membershipPlan as 'advanced' | 'premium' };
+      await recordAudit(
+        {
+          action: AUDIT_ACTIONS.earningCredited,
+          userId: user.id,
+          entityType: 'eligible_chat',
+          entityId: chat?.chatReference ?? input.chatReference,
+          metadata: { amountKes: amount, completedMinutes: input.completedMinutes }
+        },
+        tx
+      );
+      return {
+        chatReference: input.chatReference,
+        amountKes: amount,
+        membershipPlan: user.membershipPlan as 'advanced' | 'premium'
+      };
     });
   } catch (error) {
     if (String((error as Error).message).includes('duplicate key')) {

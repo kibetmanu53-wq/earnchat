@@ -73,14 +73,10 @@ export function VerifyEmail({ token }: { token: string }) {
           {status === 'verified' ? 'Email verified' : 'Verify your email'}
         </h1>
 
-        {status === 'verifying' ? (
-          <p className="mt-2 text-sm text-muted-foreground">Verifying your link…</p>
-        ) : null}
+        {status === 'verifying' ? <p className="mt-2 text-sm text-muted-foreground">Verifying your link…</p> : null}
 
         {status === 'verified' ? (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Thanks! Redirecting you to activate your account…
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">Thanks! Redirecting you to activate your account…</p>
         ) : null}
 
         {status === 'ready' || status === 'sending' || status === 'sent' ? (

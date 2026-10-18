@@ -1,4 +1,11 @@
-import { MpesaError, type MpesaClient, type MpesaEnvironment, type StkPushRequest, type StkPushResult, type StkQueryResult } from './types';
+import {
+  MpesaError,
+  type MpesaClient,
+  type MpesaEnvironment,
+  type StkPushRequest,
+  type StkPushResult,
+  type StkQueryResult
+} from './types';
 
 export interface DarajaConfig {
   environment: MpesaEnvironment;
@@ -54,8 +61,7 @@ export function darajaPassword(shortcode: string, passkey: string, timestamp: st
 }
 
 export function createDarajaClient(config: DarajaConfig): MpesaClient {
-  const baseUrl =
-    config.environment === 'sandbox' ? 'https://sandbox.safaricom.co.ke' : 'https://api.safaricom.co.ke';
+  const baseUrl = config.environment === 'sandbox' ? 'https://sandbox.safaricom.co.ke' : 'https://api.safaricom.co.ke';
 
   let accessToken: string | null = null;
   let accessTokenExpiresAt = 0;
@@ -66,7 +72,11 @@ export function createDarajaClient(config: DarajaConfig): MpesaClient {
     const response = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
       headers: { authorization: `Basic ${credentials}` }
     });
-    const body = (await response.json().catch(() => ({}))) as { access_token?: string; expires_in?: string; errorMessage?: string };
+    const body = (await response.json().catch(() => ({}))) as {
+      access_token?: string;
+      expires_in?: string;
+      errorMessage?: string;
+    };
     if (!response.ok || typeof body.access_token !== 'string' || !body.access_token) {
       throw new MpesaError(body.errorMessage || 'Safaricom could not authorize the payment request.', 'oauth_failed');
     }
@@ -113,7 +123,10 @@ export function createDarajaClient(config: DarajaConfig): MpesaClient {
         typeof result.MerchantRequestID !== 'string' ||
         !result.MerchantRequestID
       ) {
-        throw new MpesaError(result.ResponseDescription || 'Safaricom returned an invalid STK Push response.', 'stk_invalid');
+        throw new MpesaError(
+          result.ResponseDescription || 'Safaricom returned an invalid STK Push response.',
+          'stk_invalid'
+        );
       }
       return {
         checkoutRequestId: result.CheckoutRequestID,

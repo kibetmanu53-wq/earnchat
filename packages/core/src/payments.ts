@@ -3,6 +3,7 @@ import { getDb, payments, users, type Database, type Payment } from '@earnchat/d
 import { ACCOUNT_REFERENCE, FEE_AMOUNTS_KES, normalizeKenyanPhone } from '@earnchat/domain';
 import type { MpesaClient } from '@earnchat/payments';
 import { AppError } from './errors';
+import { AUDIT_ACTIONS, recordAudit } from './audit';
 
 const PENDING_STATUSES = ['initiating', 'pending'] as const;
 const PENDING_TTL_MS = Number(process.env.PAYMENT_PENDING_TTL_MS ?? 180_000);
@@ -95,6 +96,16 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
       .values({ userId: input.userId, type: input.type, amountKes, phone, status: 'initiating' })
       .returning();
     if (!created) throw new AppError('Could not create the payment.', 500);
+    await recordAudit(
+      {
+        action: AUDIT_ACTIONS.paymentInitiated,
+        userId: input.userId,
+        entityType: 'payment',
+        entityId: created.id,
+        metadata: { type: input.type, amountKes }
+      },
+      tx
+    );
     return created;
   });
 
@@ -121,6 +132,16 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
       .update(payments)
       .set({ status: 'initiation_failed', updatedAt: new Date() })
       .where(eq(payments.id, payment.id));
+    await recordAudit(
+      {
+        action: AUDIT_ACTIONS.paymentInitiationFailed,
+        userId: input.userId,
+        entityType: 'payment',
+        entityId: payment.id,
+        metadata: { type: input.type, amountKes, reason: (error as Error).message }
+      },
+      db
+    );
     throw error;
   }
 }
@@ -131,7 +152,11 @@ export interface SettleInput {
 }
 
 /** Idempotently marks a payment paid and activates the account entitlement. */
-export async function settlePayment(paymentId: string, input: SettleInput, db: Database = getDb()): Promise<Payment | null> {
+export async function settlePayment(
+  paymentId: string,
+  input: SettleInput,
+  db: Database = getDb()
+): Promise<Payment | null> {
   return db.transaction(async (tx) => {
     const [payment] = await tx.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
     if (!payment) return null;
@@ -150,11 +175,43 @@ export async function settlePayment(paymentId: string, input: SettleInput, db: D
       .returning();
 
     if (updated) {
+      await recordAudit(
+        {
+          action: AUDIT_ACTIONS.paymentSettled,
+          userId: payment.userId,
+          entityType: 'payment',
+          entityId: payment.id,
+          metadata: { type: payment.type, amountKes: payment.amountKes, receipt: updated.providerReference }
+        },
+        tx
+      );
       if (payment.type === 'verification') {
         await tx.update(users).set({ verified: true, updatedAt: new Date() }).where(eq(users.id, payment.userId));
+        await recordAudit(
+          {
+            action: AUDIT_ACTIONS.accountVerified,
+            userId: payment.userId,
+            entityType: 'user',
+            entityId: payment.userId
+          },
+          tx
+        );
       }
       if (payment.type === 'beginner_membership') {
-        await tx.update(users).set({ membershipPlan: 'beginner', updatedAt: new Date() }).where(eq(users.id, payment.userId));
+        await tx
+          .update(users)
+          .set({ membershipPlan: 'beginner', updatedAt: new Date() })
+          .where(eq(users.id, payment.userId));
+        await recordAudit(
+          {
+            action: AUDIT_ACTIONS.membershipActivated,
+            userId: payment.userId,
+            entityType: 'user',
+            entityId: payment.userId,
+            metadata: { plan: 'beginner' }
+          },
+          tx
+        );
       }
     }
     return updated ?? payment;
@@ -162,16 +219,34 @@ export async function settlePayment(paymentId: string, input: SettleInput, db: D
 }
 
 async function markFailed(payment: Payment, resultCode: number, db: Database): Promise<Payment> {
-  const [failed] = await db
-    .update(payments)
-    .set({ status: 'failed', resultCode, updatedAt: new Date() })
-    .where(and(eq(payments.id, payment.id), inArray(payments.status, [...PENDING_STATUSES])))
-    .returning();
-  return failed ?? payment;
+  return db.transaction(async (tx) => {
+    const [failed] = await tx
+      .update(payments)
+      .set({ status: 'failed', resultCode, updatedAt: new Date() })
+      .where(and(eq(payments.id, payment.id), inArray(payments.status, [...PENDING_STATUSES])))
+      .returning();
+    if (failed) {
+      await recordAudit(
+        {
+          action: AUDIT_ACTIONS.paymentFailed,
+          userId: failed.userId,
+          entityType: 'payment',
+          entityId: failed.id,
+          metadata: { type: failed.type, amountKes: failed.amountKes, resultCode }
+        },
+        tx
+      );
+    }
+    return failed ?? payment;
+  });
 }
 
 /** Queries Daraja for the authoritative state of a pending payment. */
-export async function confirmPaymentByQuery(paymentId: string, mpesa: MpesaClient, db: Database = getDb()): Promise<Payment | null> {
+export async function confirmPaymentByQuery(
+  paymentId: string,
+  mpesa: MpesaClient,
+  db: Database = getDb()
+): Promise<Payment | null> {
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
   if (!payment || !payment.checkoutRequestId) return payment ?? null;
   if (payment.status === 'paid' || !(PENDING_STATUSES as readonly string[]).includes(payment.status)) return payment;
@@ -255,7 +330,9 @@ interface StkCallback {
 function extractMetadata(callback: StkCallback): Record<string, unknown> {
   const items = callback.CallbackMetadata?.Item;
   if (!Array.isArray(items)) return {};
-  return Object.fromEntries(items.filter((item) => item && typeof item.Name === 'string').map((item) => [item.Name as string, item.Value]));
+  return Object.fromEntries(
+    items.filter((item) => item && typeof item.Name === 'string').map((item) => [item.Name as string, item.Value])
+  );
 }
 
 export interface MpesaCallbackEvent {
@@ -268,12 +345,20 @@ export interface MpesaCallbackEvent {
  * STK Query before settling. Daraja callbacks are not signed, so the query is
  * the source of truth.
  */
-export async function handleMpesaCallback(event: MpesaCallbackEvent, mpesa: MpesaClient, db: Database = getDb()): Promise<Payment | null> {
+export async function handleMpesaCallback(
+  event: MpesaCallbackEvent,
+  mpesa: MpesaClient,
+  db: Database = getDb()
+): Promise<Payment | null> {
   const callback = event?.Body?.stkCallback;
   if (!callback || typeof callback.CheckoutRequestID !== 'string') {
     throw new AppError('Invalid M-Pesa callback event.', 400, 'invalid_callback');
   }
-  const [payment] = await db.select().from(payments).where(eq(payments.checkoutRequestId, callback.CheckoutRequestID)).limit(1);
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.checkoutRequestId, callback.CheckoutRequestID))
+    .limit(1);
   if (!payment) return null;
 
   if (String(callback.ResultCode) !== '0') {

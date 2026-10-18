@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { confirmPaymentByQuery, listPendingPayments } from '@earnchat/core';
+import { createLogger } from '@earnchat/logger';
 import { getMpesaClient, loadMpesaConfig, mpesaConfigError } from '@earnchat/payments';
 
 const rootEnv = fileURLToPath(new URL('../../../.env', import.meta.url));
@@ -8,6 +9,7 @@ if (existsSync(rootEnv) && typeof process.loadEnvFile === 'function') {
   process.loadEnvFile(rootEnv);
 }
 
+const log = createLogger({ service: 'worker' });
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 15_000);
 const BATCH_SIZE = 50;
 
@@ -25,34 +27,24 @@ async function sweep(): Promise<void> {
       try {
         const result = await confirmPaymentByQuery(payment.id, mpesa);
         if (result && result.status !== payment.status) {
-          log(`payment ${payment.id} ${payment.status} -> ${result.status}`);
+          log.info('payment status changed', { paymentId: payment.id, from: payment.status, to: result.status });
         }
       } catch (error) {
-        warn(`could not confirm payment ${payment.id}: ${(error as Error).message}`);
+        log.warn('could not confirm payment', { paymentId: payment.id, error });
       }
     }
   } catch (error) {
-    error2(`sweep failed: ${(error as Error).message}`);
+    log.error('sweep failed', { error });
   } finally {
     running = false;
   }
 }
 
-function log(message: string) {
-  console.log(`[worker ${new Date().toISOString()}] ${message}`);
-}
-function warn(message: string) {
-  console.warn(`[worker ${new Date().toISOString()}] WARN ${message}`);
-}
-function error2(message: string) {
-  console.error(`[worker ${new Date().toISOString()}] ERROR ${message}`);
-}
-
 async function main(): Promise<void> {
   const config = loadMpesaConfig();
-  log(`starting — interval ${POLL_INTERVAL_MS}ms, M-Pesa mode "${config.mode}"`);
+  log.info('starting', { pollIntervalMs: POLL_INTERVAL_MS, mpesaMode: config.mode });
   const configError = mpesaConfigError(config);
-  if (configError) warn(`M-Pesa is not fully configured: ${configError}`);
+  if (configError) log.warn('M-Pesa is not fully configured', { configError });
 
   await sweep();
 
@@ -62,7 +54,7 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     clearInterval(timer);
-    log(`received ${signal}, shutting down`);
+    log.info('shutting down', { signal });
     process.exit(0);
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
@@ -70,6 +62,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  error2(`fatal: ${(error as Error).message}`);
+  log.error('fatal', { error });
   process.exit(1);
 });

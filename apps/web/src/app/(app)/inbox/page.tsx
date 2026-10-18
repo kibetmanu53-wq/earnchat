@@ -68,7 +68,9 @@ export default async function InboxPage() {
       {!user.verified ? (
         <Card className="mt-6 border-primary/30 bg-accent/20">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <p className="text-sm">Verify your account with a one-time {formatKes(150)} M-Pesa payment to start earning.</p>
+            <p className="text-sm">
+              Verify your account with a one-time {formatKes(150)} M-Pesa payment to start earning.
+            </p>
             <Link href="/wallet" className="text-sm font-semibold text-primary hover:underline">
               Go to wallet →
             </Link>

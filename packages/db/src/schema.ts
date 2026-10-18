@@ -133,9 +133,33 @@ export const authTokens = pgTable(
   (table) => [index('auth_tokens_user_type_idx').on(table.userId, table.type)]
 );
 
+/**
+ * Append-only trail of money and entitlement events. Written inside the same
+ * transaction as the state change it records, so the ledger can never disagree
+ * with the row it describes.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    entityType: text('entity_type'),
+    entityId: text('entity_id'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index('audit_log_user_created_idx').on(table.userId, table.createdAt),
+    index('audit_log_action_created_idx').on(table.action, table.createdAt)
+  ]
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
 export type AuthToken = typeof authTokens.$inferSelect;
 export type NewAuthToken = typeof authTokens.$inferInsert;
+export type AuditLogEntry = typeof auditLog.$inferSelect;
+export type NewAuditLogEntry = typeof auditLog.$inferInsert;

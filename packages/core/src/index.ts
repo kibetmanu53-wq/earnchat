@@ -1,4 +1,5 @@
 export { AppError } from './errors';
+export { AUDIT_ACTIONS, recordAudit, type AuditEvent } from './audit';
 export {
   createAccount,
   authenticate,
