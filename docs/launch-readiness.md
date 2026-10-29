@@ -27,25 +27,23 @@ Never commit them (`.env` is gitignored).
       such as Neon).
 - [ ] Apply migrations: `npm run db:migrate` → ends with
       `migrations applied successfully!` and no pending work.
-- [ ] Confirm the schema: 4 migrations applied and the tables `audit_log`,
-      `rate_limit_counters`, `auth_tokens`, and the column `users.email_verified_at`
-      exist.
+- [ ] Confirm the schema: 5 migrations applied and the tables `audit_log`,
+      `rate_limit_counters`, and `auth_tokens` exist.
 - [ ] Enable automated backups / PITR and restrict network access.
 
 > Managed hosts that publish IPv6 records (e.g. Neon) can stall on hosts without
 > an IPv6 route. The DB client disables Node's IPv6 auto-selection in-process, so
 > `next start`, the worker, and `npm run db:migrate` all connect reliably.
 
-## 4. Email (verification + password reset)
+## 4. Email (password reset)
 
 - [ ] `MAIL_MODE=resend`, `RESEND_API_KEY`, and `MAIL_FROM` on a **verified**
       sending domain.
-- [ ] `APP_URL` set to the public HTTPS origin — verification and reset links are
-      built from it.
+- [ ] `APP_URL` set to the public HTTPS origin — reset links are built from it.
 - [ ] `MAIL_MODE=log` is rejected in production (`emailConfigured:false`); do not
       ship with it.
-- [ ] Smoke test: register a real address, confirm the email arrives, and that the
-      verification link resolves and activates.
+- [ ] Smoke test: request a password reset for a real address, confirm the email
+      arrives, and that the link resolves and changes the password.
 
 ## 5. M-Pesa (Safaricom Daraja)
 
@@ -61,6 +59,29 @@ Never commit them (`.env` is gitignored).
       callback cannot grant access on its own.
 - [ ] The webhook acknowledges (200) anything it will never act on and only
       returns 5xx for genuine internal failures worth retrying.
+
+## 5a. Nexus Pay (alternative provider)
+
+Use this instead of the Daraja section when `PAYMENT_PROVIDER=nexus_pay`.
+
+- [ ] `PAYMENT_PROVIDER=nexus_pay`.
+- [ ] `NEXUS_PAY_API_KEY` is the **secret** key (`sk_...` / `sb_...`), not the
+      public `pk_...` key.
+- [ ] `NEXUS_PAY_WEBHOOK_SECRET` matches the secret for the endpoint in the
+      Nexus Pay dashboard.
+- [ ] `NEXUS_PAY_API_BASE_URL=https://makamescopay.com` (HTTPS is required
+      outside localhost).
+- [ ] Dashboard webhook URL is `https://<host>/api/webhooks/nexus-pay` with
+      `payment.completed` and `payment.failed` (`payment.cancelled` optional).
+- [ ] An M-Pesa settlement account is configured in the Nexus Pay dashboard.
+- [ ] The webhook rejects missing/invalid signatures with 401 before parsing any
+      JSON, and returns 200 for duplicates and unsupported events.
+- [ ] A completed event whose amount, phone, checkout id, transaction id, or
+      account reference differs from the stored payment is ignored.
+- [ ] Duplicate deliveries do not create a second entitlement or audit
+      `payment.settled` entry.
+- [ ] Nexus Pay's sandbox issues real STK prompts for small real amounts; use a
+      low-value manual transaction, never automated tests.
 
 ## 6. Worker
 
@@ -80,10 +101,11 @@ Never commit them (`.env` is gitignored).
 ## 8. Verify before opening the doors
 
 - [ ] `GET /api/health` returns `ok:true`, `paymentsConfigured:true`,
+      `paymentProvider` set to the active provider, and (for Daraja)
       `paymentMode:"live"`, `paymentEnvironment:"production"`,
       `emailConfigured:true`, `mailMode:"resend"`.
 - [ ] End-to-end happy path on a real number with a small amount: sign up →
-      verify email → pay KSh 150 → account activates → choose a plan.
+      pay KSh 150 → account activates → choose a plan.
 - [ ] The 150 KES payment does **not** grant access until it is confirmed, and a
       matching `audit_log` trail exists (`payment.initiated`, `payment.settled`,
       `account.verified`).

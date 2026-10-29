@@ -1,6 +1,6 @@
 # EarnChat
 
-A chat-and-earn platform: users verify with M-Pesa, choose a membership plan, and earn KSh for eligible 5-minute chats. Payments run through Safaricom Daraja (STK Push).
+A chat-and-earn platform: users verify with M-Pesa, choose a membership plan, and earn KSh for eligible 5-minute chats. Payments run through Safaricom Daraja (STK Push) or Makamesco Nexus Pay.
 
 This is a Turborepo monorepo (npm workspaces). The original single-file prototype is preserved under `legacy/prototype/`.
 
@@ -9,7 +9,7 @@ This is a Turborepo monorepo (npm workspaces). The original single-file prototyp
 - **Next.js 16** (App Router) + **React 19** + **Tailwind CSS v4** for the web app
 - **Drizzle ORM** over **PostgreSQL**
 - **Zod** for input validation
-- Safaricom **Daraja** M-Pesa client with a mock mode
+- Safaricom **Daraja** M-Pesa client with a mock mode, plus **Nexus Pay** (Makamesco) as an alternative STK Push provider
 - A standalone polling **worker** (`apps/worker`) that reconciles pending payments, with status checks also reconciling active users' payments
 
 ## Layout
@@ -23,7 +23,7 @@ packages/
   domain/     Constants, phone normalization, earnings math
   validation/ Zod schemas
   db/         Drizzle schema + client
-  payments/   Daraja client, mock client, config loading
+  payments/   Daraja + Nexus Pay clients, mock client, config loading
   auth/       Password hashing (scrypt) + DB-backed sessions
   core/       Business services used by web and worker
 legacy/
@@ -55,7 +55,7 @@ Internal packages export TypeScript source directly (no build step); Next transp
 3. Fill in `.env`:
    - `DATABASE_URL` — your PostgreSQL connection string.
    - `SESSION_SECRET` and `EARNINGS_ADMIN_SECRET` — separate random strings of at least 32 characters (`openssl rand -hex 32`).
-   - M-Pesa settings. Start with `MPESA_MODE=mock` for local development.
+   - Payment settings. Nexus Pay is the default; configure `NEXUS_PAY_*` as described below. To use Daraja instead, set `PAYMENT_PROVIDER=daraja` and `MPESA_MODE=mock` for local development.
 
 4. Start a local database (optional, if you are not using your own):
 
@@ -91,6 +91,45 @@ Internal packages export TypeScript source directly (no build step); Next transp
 - The customer enters their PIN only in the official M-Pesa prompt. EarnChat never asks for or stores it.
 - Daraja callbacks are unsigned, so the server re-validates amount/phone/receipt and confirms with an authoritative STK Query before activating anything. The browser cannot declare a payment successful.
 - Keep the worker running in production to reconcile payments even when users leave the page. While a user is waiting on the payment screen, status checks also query Daraja so confirmation does not depend on the worker alone.
+
+## Nexus Pay (Makamesco)
+
+Nexus Pay is the default payment provider. It handles STK Push and sends signed
+webhooks. Existing Daraja code remains available and can be selected explicitly
+with `PAYMENT_PROVIDER=daraja`.
+
+1. In the Nexus Pay dashboard, create a **secret** API key (`sk_...` or
+   `sb_...`, never `pk_...`) and add an M-Pesa settlement account.
+2. Add a webhook endpoint pointing at `https://<host>/api/webhooks/nexus-pay`
+   with the `payment.completed` and `payment.failed` events
+   (`payment.cancelled` is also handled if enabled). Copy the webhook signing
+   secret.
+3. Set:
+
+   ```bash
+   PAYMENT_PROVIDER=nexus_pay
+   NEXUS_PAY_API_KEY=sk_...
+   NEXUS_PAY_WEBHOOK_SECRET=...
+   NEXUS_PAY_API_BASE_URL=https://makamescopay.com
+   ```
+
+4. Keep the worker running. It reconciles pending Nexus Pay payments with
+   `GET /api/payments/status/:checkoutRequestId`.
+
+Security properties:
+
+- Amounts come from the server-side fee table, never from the browser.
+- `X-Webhook-Signature` is verified as `sha256=<hex HMAC-SHA256(rawBody,
+NEXUS_PAY_WEBHOOK_SECRET)>` with a constant-time comparison before parsing.
+- The stored payment must match the provider, checkout/transaction/account
+  reference, phone, and amount before any state change.
+- Only `payment.completed` can settle a payment. Settlement is idempotent, so
+  duplicate deliveries cannot grant entitlements twice.
+- A late `payment.failed`/`payment.cancelled` cannot undo a paid payment.
+
+Nexus Pay's sandbox sends real STK prompts for small real amounts. Automated
+tests use a mocked `fetch` and never call the provider; use a low-value manual
+transaction to rehearse the live flow.
 
 ## Earnings and withdrawals
 

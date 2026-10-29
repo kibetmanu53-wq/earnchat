@@ -21,7 +21,7 @@ export function loadMailConfig(env: NodeJS.ProcessEnv = process.env): MailConfig
 export function mailConfigError(config: MailConfig, env: NodeJS.ProcessEnv = process.env): string | null {
   if (config.mode === 'log') {
     return env.NODE_ENV === 'production'
-      ? 'MAIL_MODE=log does not deliver email; users cannot verify or reset. Set MAIL_MODE=resend.'
+      ? 'MAIL_MODE=log does not deliver email; users cannot reset their password. Set MAIL_MODE=resend.'
       : null;
   }
   if (!config.resendApiKey) return 'Set RESEND_API_KEY.';

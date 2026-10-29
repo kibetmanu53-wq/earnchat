@@ -43,19 +43,6 @@ function layout(heading: string, body: string, ctaLabel: string, url: string): s
 </html>`;
 }
 
-export function verificationEmail({ displayName, url }: TemplateInput): RenderedEmail {
-  return {
-    subject: 'Verify your EarnChat email',
-    html: layout(
-      'Confirm your email',
-      `Hi ${displayName}, welcome to ${APP_NAME}. Confirm your email address to continue setting up your account. This link expires in 24 hours.`,
-      'Verify email',
-      url
-    ),
-    text: `Hi ${displayName}, confirm your ${APP_NAME} email address (link expires in 24 hours):\n\n${url}\n`
-  };
-}
-
 export function passwordResetEmail({ displayName, url }: TemplateInput): RenderedEmail {
   return {
     subject: 'Reset your EarnChat password',

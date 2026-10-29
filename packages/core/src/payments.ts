@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { getDb, payments, users, type Database, type Payment } from '@earnchat/db';
-import { ACCOUNT_REFERENCE, FEE_AMOUNTS_KES, normalizeKenyanPhone } from '@earnchat/domain';
-import type { MpesaClient } from '@earnchat/payments';
+import { FEE_AMOUNTS_KES, normalizeKenyanPhone } from '@earnchat/domain';
+import { decideNexusPayEvent, decideStkQuery, type MpesaClient, type NexusPayWebhookEvent } from '@earnchat/payments';
 import { AppError } from './errors';
 import { AUDIT_ACTIONS, recordAudit } from './audit';
 
@@ -9,8 +10,22 @@ const PENDING_STATUSES = ['initiating', 'pending'] as const;
 const PENDING_TTL_MS = Number(process.env.PAYMENT_PENDING_TTL_MS ?? 180_000);
 const RECEIPT_PATTERN = /^[A-Z0-9]{6,20}$/;
 
+function isPending(status: Payment['status']): boolean {
+  return (PENDING_STATUSES as readonly string[]).includes(status);
+}
+
+/** Audit action for a terminal non-paid state. */
+function terminalAuditAction(status: 'failed' | 'cancelled'): string {
+  return status === 'cancelled' ? AUDIT_ACTIONS.paymentCancelled : AUDIT_ACTIONS.paymentFailed;
+}
+
 export const PAYMENT_HISTORY_PAGE_SIZE = 5;
 export const MAX_PAYMENT_HISTORY_PAGE_SIZE = 50;
+
+/** 12-character reference: safe for Daraja's AccountReference limit and unique per payment. */
+export function createPaymentAccountReference(): string {
+  return `EC${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+}
 
 export interface PaymentSummary {
   id: string;
@@ -59,9 +74,6 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
 
   const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
   if (!user) throw new AppError('Sign in is required.', 401);
-  if (input.type === 'verification' && !user.emailVerifiedAt) {
-    throw new AppError('Verify your email address before activating your account.', 403, 'email_not_verified');
-  }
   if (input.type === 'verification' && user.verified) throw new AppError('This account is already verified.', 409);
   if (input.type === 'beginner_membership' && !user.verified) {
     throw new AppError('Verify your account before purchasing a membership.', 403);
@@ -69,6 +81,9 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
   if (input.type === 'beginner_membership' && user.membershipPlan) {
     throw new AppError('A membership plan is already active.', 409);
   }
+
+  const accountReference = createPaymentAccountReference();
+  const provider = input.mpesa.provider;
 
   const payment = await db.transaction(async (tx) => {
     // Serialize initiation per (user, type): the lock makes the pending check
@@ -93,7 +108,16 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
 
     const [created] = await tx
       .insert(payments)
-      .values({ userId: input.userId, type: input.type, amountKes, phone, status: 'initiating' })
+      .values({
+        userId: input.userId,
+        type: input.type,
+        provider,
+        currency: 'KES',
+        amountKes,
+        phone,
+        accountReference,
+        status: 'initiating'
+      })
       .returning();
     if (!created) throw new AppError('Could not create the payment.', 500);
     await recordAudit(
@@ -102,7 +126,7 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
         userId: input.userId,
         entityType: 'payment',
         entityId: created.id,
-        metadata: { type: input.type, amountKes }
+        metadata: { type: input.type, amountKes, provider, accountReference }
       },
       tx
     );
@@ -113,32 +137,38 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
     const result = await input.mpesa.stkPush({
       amountKes,
       phone,
-      accountReference: ACCOUNT_REFERENCE,
-      description: `EC${payment.id.replaceAll('-', '').slice(0, 10)}`
+      accountReference,
+      description: input.type === 'verification' ? 'EarnChat verification' : 'EarnChat membership'
     });
+    // Conditional update: a webhook/status query can never be clobbered by a
+    // late STK response, and only an initiating row becomes pending.
     const [updated] = await db
       .update(payments)
       .set({
         status: 'pending',
         checkoutRequestId: result.checkoutRequestId,
-        merchantRequestId: result.merchantRequestId,
+        merchantRequestId: result.merchantRequestId ?? null,
+        providerTransactionId: result.transactionId ?? null,
         updatedAt: new Date()
       })
-      .where(eq(payments.id, payment.id))
+      .where(and(eq(payments.id, payment.id), eq(payments.status, 'initiating')))
       .returning();
-    return updated ?? payment;
+    if (updated) return updated;
+
+    const [current] = await db.select().from(payments).where(eq(payments.id, payment.id)).limit(1);
+    return current ?? payment;
   } catch (error) {
     await db
       .update(payments)
       .set({ status: 'initiation_failed', updatedAt: new Date() })
-      .where(eq(payments.id, payment.id));
+      .where(and(eq(payments.id, payment.id), eq(payments.status, 'initiating')));
     await recordAudit(
       {
         action: AUDIT_ACTIONS.paymentInitiationFailed,
         userId: input.userId,
         entityType: 'payment',
         entityId: payment.id,
-        metadata: { type: input.type, amountKes, reason: (error as Error).message }
+        metadata: { type: input.type, amountKes, provider, reason: (error as Error).message }
       },
       db
     );
@@ -149,6 +179,7 @@ export async function startPayment(input: StartPaymentInput, db: Database = getD
 export interface SettleInput {
   receipt?: string | null;
   resultCode?: number | null;
+  providerTransactionId?: string | null;
 }
 
 /** Idempotently marks a payment paid and activates the account entitlement. */
@@ -161,18 +192,25 @@ export async function settlePayment(
     const [payment] = await tx.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
     if (!payment) return null;
     if (payment.status === 'paid') return payment;
-    if (!(PENDING_STATUSES as readonly string[]).includes(payment.status)) return payment;
+    if (!isPending(payment.status)) return payment;
 
     const [updated] = await tx
       .update(payments)
       .set({
         status: 'paid',
         providerReference: input.receipt ?? payment.providerReference,
+        providerTransactionId: payment.providerTransactionId ?? input.providerTransactionId ?? null,
         resultCode: input.resultCode ?? 0,
         updatedAt: new Date()
       })
       .where(and(eq(payments.id, paymentId), inArray(payments.status, [...PENDING_STATUSES])))
       .returning();
+
+    if (!updated) {
+      // Another delivery settled it first; return the committed state.
+      const [current] = await tx.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
+      return current ?? payment;
+    }
 
     if (updated) {
       await recordAudit(
@@ -218,30 +256,49 @@ export async function settlePayment(
   });
 }
 
-async function markFailed(payment: Payment, resultCode: number, db: Database): Promise<Payment> {
+async function markTerminal(
+  payment: Payment,
+  status: 'failed' | 'cancelled',
+  resultCode: number,
+  db: Database,
+  providerTransactionId?: string | null
+): Promise<Payment> {
   return db.transaction(async (tx) => {
-    const [failed] = await tx
+    const [updated] = await tx
       .update(payments)
-      .set({ status: 'failed', resultCode, updatedAt: new Date() })
+      .set({
+        status,
+        resultCode,
+        providerTransactionId: payment.providerTransactionId ?? providerTransactionId ?? null,
+        updatedAt: new Date()
+      })
       .where(and(eq(payments.id, payment.id), inArray(payments.status, [...PENDING_STATUSES])))
       .returning();
-    if (failed) {
+    if (!updated) {
+      const [current] = await tx.select().from(payments).where(eq(payments.id, payment.id)).limit(1);
+      return current ?? payment;
+    }
+    if (updated) {
       await recordAudit(
         {
-          action: AUDIT_ACTIONS.paymentFailed,
-          userId: failed.userId,
+          action: terminalAuditAction(status),
+          userId: updated.userId,
           entityType: 'payment',
-          entityId: failed.id,
-          metadata: { type: failed.type, amountKes: failed.amountKes, resultCode }
+          entityId: updated.id,
+          metadata: { type: updated.type, amountKes: updated.amountKes, resultCode, status }
         },
         tx
       );
     }
-    return failed ?? payment;
+    return updated ?? payment;
   });
 }
 
-/** Queries Daraja for the authoritative state of a pending payment. */
+/**
+ * Queries the active provider for the authoritative state of a pending payment.
+ * Provider identity is checked first so a client for one provider can never
+ * move a payment created by another.
+ */
 export async function confirmPaymentByQuery(
   paymentId: string,
   mpesa: MpesaClient,
@@ -249,12 +306,26 @@ export async function confirmPaymentByQuery(
 ): Promise<Payment | null> {
   const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
   if (!payment || !payment.checkoutRequestId) return payment ?? null;
-  if (payment.status === 'paid' || !(PENDING_STATUSES as readonly string[]).includes(payment.status)) return payment;
+  if (payment.provider !== mpesa.provider) return payment;
+  if (!isPending(payment.status)) return payment;
 
   const result = await mpesa.stkQuery(payment.checkoutRequestId);
-  if (result.resultCode === 0) return settlePayment(payment.id, { resultCode: 0 }, db);
-  if (result.resultCode === 1037) return payment;
-  return markFailed(payment, result.resultCode, db);
+  const decision = decideStkQuery(result, payment);
+  switch (decision.action) {
+    case 'settle':
+      return settlePayment(
+        payment.id,
+        { receipt: decision.receipt, resultCode: 0, providerTransactionId: result.transactionId ?? null },
+        db
+      );
+    case 'failed':
+      return markTerminal(payment, 'failed', decision.resultCode, db);
+    case 'cancelled':
+      return markTerminal(payment, 'cancelled', decision.resultCode, db);
+    case 'wait':
+    case 'ignore':
+      return payment;
+  }
 }
 
 export async function listPendingPayments(limit = 50, db: Database = getDb()): Promise<Payment[]> {
@@ -360,6 +431,7 @@ export async function handleMpesaCallback(
     .where(eq(payments.checkoutRequestId, callback.CheckoutRequestID))
     .limit(1);
   if (!payment) return null;
+  if (payment.provider !== mpesa.provider) return payment;
 
   if (String(callback.ResultCode) !== '0') {
     return confirmPaymentByQuery(payment.id, mpesa, db);
@@ -379,4 +451,66 @@ export async function handleMpesaCallback(
   if (query.resultCode !== 0) return payment;
 
   return settlePayment(payment.id, { receipt: metadata.MpesaReceiptNumber as string, resultCode: 0 }, db);
+}
+
+/**
+ * Applies a *signature-verified* Nexus Pay webhook to the stored payment.
+ *
+ * The caller (the webhook route) must verify the HMAC over the raw body before
+ * calling this. Matching is intentionally narrow — checkout id first, then
+ * provider transaction id, then account reference — and every match is still
+ * re-validated for provider, amount, phone, and status by `decideNexusPayEvent`.
+ * Settlement is idempotent, so duplicate deliveries cannot double-credit.
+ */
+export async function handleNexusPayWebhook(
+  event: NexusPayWebhookEvent,
+  db: Database = getDb()
+): Promise<Payment | null> {
+  let payment: Payment | undefined;
+
+  [payment] = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.checkoutRequestId, event.data.checkoutRequestId))
+    .limit(1);
+
+  if (!payment && event.data.id) {
+    [payment] = await db.select().from(payments).where(eq(payments.providerTransactionId, event.data.id)).limit(1);
+  }
+
+  if (!payment && event.data.accountReference) {
+    [payment] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.accountReference, event.data.accountReference))
+      .limit(1);
+  }
+
+  if (!payment) return null;
+
+  const decision = decideNexusPayEvent(event, {
+    id: payment.id,
+    provider: payment.provider,
+    amountKes: payment.amountKes,
+    phone: payment.phone,
+    status: payment.status,
+    checkoutRequestId: payment.checkoutRequestId,
+    providerTransactionId: payment.providerTransactionId,
+    accountReference: payment.accountReference
+  });
+
+  switch (decision.action) {
+    case 'settle':
+      return settlePayment(
+        payment.id,
+        { receipt: decision.receipt, resultCode: decision.resultCode, providerTransactionId: event.data.id },
+        db
+      );
+    case 'failed':
+      return markTerminal(payment, 'failed', decision.resultCode, db, event.data.id);
+    case 'cancelled':
+      return markTerminal(payment, 'cancelled', decision.resultCode, db, event.data.id);
+    case 'ignore':
+      return payment;
+  }
 }

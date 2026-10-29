@@ -101,6 +101,7 @@ export function createDarajaClient(config: DarajaConfig): MpesaClient {
 
   return {
     mode: 'live',
+    provider: 'daraja',
     async stkPush(request: StkPushRequest): Promise<StkPushResult> {
       const timestamp = darajaTimestamp();
       const result = await post<DarajaStkResponse>('/mpesa/stkpush/v1/processrequest', {

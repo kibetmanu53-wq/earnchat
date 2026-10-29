@@ -9,7 +9,6 @@ export default async function ActivationLayout({ children }: { children: React.R
   const user = await getCurrentUser();
   if (!user) redirect('/sign-in');
   if (user.verified) redirect('/inbox');
-  if (!user.emailVerifiedAt) redirect('/verify-email');
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted px-4 py-12">

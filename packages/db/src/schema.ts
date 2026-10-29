@@ -7,6 +7,7 @@ export const paymentStatusEnum = pgEnum('payment_status', [
   'pending',
   'paid',
   'failed',
+  'cancelled',
   'initiation_failed'
 ]);
 export const withdrawalStatusEnum = pgEnum('withdrawal_status', [
@@ -16,7 +17,7 @@ export const withdrawalStatusEnum = pgEnum('withdrawal_status', [
   'paid',
   'failed'
 ]);
-export const authTokenTypeEnum = pgEnum('auth_token_type', ['verify_email', 'reset_password']);
+export const authTokenTypeEnum = pgEnum('auth_token_type', ['reset_password']);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -24,7 +25,6 @@ export const users = pgTable('users', {
   displayName: text('display_name').notNull(),
   passwordHash: text('password_hash').notNull(),
   verified: boolean('verified').notNull().default(false),
-  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   membershipPlan: membershipPlanEnum('membership_plan'),
   age: integer('age'),
   location: text('location'),
@@ -55,11 +55,16 @@ export const payments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     type: paymentTypeEnum('type').notNull(),
+    provider: text('provider').notNull().default('daraja'),
+    currency: text('currency').notNull().default('KES'),
     amountKes: integer('amount_kes').notNull(),
     phone: text('phone').notNull(),
     status: paymentStatusEnum('status').notNull().default('initiating'),
+    /** Unique, human-readable reference sent to the provider and returned in webhooks. */
+    accountReference: text('account_reference').unique(),
     checkoutRequestId: text('checkout_request_id').unique(),
     merchantRequestId: text('merchant_request_id'),
+    providerTransactionId: text('provider_transaction_id').unique(),
     providerReference: text('provider_reference'),
     resultCode: integer('result_code'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -67,7 +72,8 @@ export const payments = pgTable(
   },
   (table) => [
     index('payments_user_created_idx').on(table.userId, table.createdAt),
-    index('payments_status_idx').on(table.status)
+    index('payments_status_idx').on(table.status),
+    index('payments_provider_transaction_idx').on(table.provider, table.providerTransactionId)
   ]
 );
 

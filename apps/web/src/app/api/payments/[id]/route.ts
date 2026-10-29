@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { confirmPaymentByQuery, getPayment } from '@earnchat/core';
-import { getMpesaClient } from '@earnchat/payments';
+import { getPaymentClientForProvider, isPaymentProvider } from '@earnchat/payments';
 import { jsonError, jsonOk } from '@/lib/http';
 import { getCurrentUser } from '@/lib/session';
 
@@ -18,8 +18,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Payment not found.' }, { status: 404 });
     }
 
-    if (payment.status === 'pending') {
-      payment = (await confirmPaymentByQuery(payment.id, getMpesaClient())) ?? payment;
+    if (payment.status === 'pending' && isPaymentProvider(payment.provider)) {
+      payment = (await confirmPaymentByQuery(payment.id, getPaymentClientForProvider(payment.provider))) ?? payment;
     }
 
     return jsonOk({

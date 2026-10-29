@@ -2,13 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { normalizeKenyanPhone } from '@earnchat/domain';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatKes } from '@/lib/utils';
 
-type Status = 'idle' | 'sending' | 'pending' | 'paid' | 'failed';
+type Status = 'idle' | 'sending' | 'pending' | 'paid' | 'failed' | 'cancelled';
+
+const TERMINAL_MESSAGES: Record<'failed' | 'cancelled', string> = {
+  failed: 'The M-Pesa payment did not complete. You can try again.',
+  cancelled: 'The M-Pesa prompt was cancelled. You can try again when ready.'
+};
 
 export function PaymentCard({
   type,
@@ -27,6 +33,8 @@ export function PaymentCard({
   const [phone, setPhone] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState<string | null>(null);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -43,45 +51,78 @@ export function PaymentCard({
     }
   }
 
-  function poll(paymentId: string) {
+  function scheduleCheck(id: string) {
     stopPolling();
-    const checkStatus = async () => {
-      try {
-        const response = await fetch(`/api/payments/${paymentId}`);
-        if (!response.ok) {
-          pollTimer.current = setTimeout(checkStatus, 2000);
-          return;
-        }
-        const data = (await response.json()) as { payment?: { status?: string } };
-        const next = data.payment?.status;
-        if (next === 'paid') {
-          stopPolling();
-          setStatus('paid');
-          setMessage('Payment confirmed. Your account has been updated.');
-          setTimeout(() => router.refresh(), 800);
-        } else if (next === 'failed' || next === 'initiation_failed') {
-          stopPolling();
-          setStatus('failed');
-          setMessage('The M-Pesa payment did not complete. You can try again.');
-        } else {
-          pollTimer.current = setTimeout(checkStatus, 2000);
-        }
-      } catch {
-        pollTimer.current = setTimeout(checkStatus, 2000);
+    pollTimer.current = setTimeout(() => void checkStatus(id), 2000);
+  }
+
+  function applyStatus(next: string | undefined, id: string): boolean {
+    if (next === 'paid') {
+      stopPolling();
+      setStatus('paid');
+      setMessage('Payment confirmed. Your account has been updated.');
+      setTimeout(() => router.refresh(), 800);
+      return true;
+    }
+    if (next === 'failed' || next === 'initiation_failed') {
+      stopPolling();
+      setStatus('failed');
+      setMessage(TERMINAL_MESSAGES.failed);
+      return true;
+    }
+    if (next === 'cancelled') {
+      stopPolling();
+      setStatus('cancelled');
+      setMessage(TERMINAL_MESSAGES.cancelled);
+      return true;
+    }
+    setStatus('pending');
+    scheduleCheck(id);
+    return false;
+  }
+
+  async function checkStatus(id: string) {
+    try {
+      const response = await fetch(`/api/payments/${id}`, { cache: 'no-store' });
+      if (!response.ok) {
+        scheduleCheck(id);
+        return;
       }
-    };
-    void checkStatus();
+      const data = (await response.json()) as { payment?: { status?: string } };
+      applyStatus(data.payment?.status, id);
+    } catch {
+      scheduleCheck(id);
+    }
+  }
+
+  async function refreshStatus() {
+    if (!paymentId || checking) return;
+    setChecking(true);
+    try {
+      await checkStatus(paymentId);
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    stopPolling();
+
+    const normalized = normalizeKenyanPhone(phone);
+    if (!normalized) {
+      setStatus('failed');
+      setMessage('Enter a valid Kenyan M-Pesa number, such as 0712345678.');
+      return;
+    }
+
     setStatus('sending');
     setMessage(null);
     try {
       const response = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type, phone })
+        body: JSON.stringify({ type, phone: normalized })
       });
       const data = (await response.json().catch(() => ({}))) as {
         paymentId?: string;
@@ -93,9 +134,10 @@ export function PaymentCard({
         setMessage(data.error ?? 'Could not start the payment.');
         return;
       }
+      setPaymentId(data.paymentId);
       setStatus('pending');
       setMessage(data.message ?? 'Check your phone and enter your M-Pesa PIN.');
-      poll(data.paymentId);
+      scheduleCheck(data.paymentId);
     } catch {
       setStatus('failed');
       setMessage('Could not reach the server. Please try again.');
@@ -103,6 +145,7 @@ export function PaymentCard({
   }
 
   const busy = status === 'sending' || status === 'pending';
+  const failed = status === 'failed' || status === 'cancelled';
 
   return (
     <Card>
@@ -124,21 +167,33 @@ export function PaymentCard({
               <Input
                 id={`phone-${type}`}
                 name="phone"
+                type="tel"
                 inputMode="tel"
+                autoComplete="tel"
                 placeholder="0712345678"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
                 disabled={busy}
+                aria-invalid={failed && !normalizeKenyanPhone(phone) ? true : undefined}
                 required
               />
             </div>
             <Button type="submit" disabled={busy} className="w-full">
               {status === 'sending' ? 'Sending prompt…' : status === 'pending' ? 'Waiting for confirmation…' : ctaLabel}
             </Button>
+            {status === 'pending' && paymentId ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => void refreshStatus()}
+                disabled={checking}
+              >
+                {checking ? 'Checking…' : "I've paid — check status"}
+              </Button>
+            ) : null}
             {message ? (
-              <p className={`text-sm ${status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}>
-                {message}
-              </p>
+              <p className={`text-sm ${failed ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>
             ) : null}
             <p className="text-xs text-muted-foreground">
               Enter your PIN only in the official M-Pesa prompt on your phone. EarnChat never sees your PIN.

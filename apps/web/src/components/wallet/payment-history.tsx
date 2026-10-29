@@ -25,7 +25,17 @@ const STATUS_VARIANT: Record<string, 'default' | 'accent' | 'muted' | 'destructi
   pending: 'muted',
   initiating: 'muted',
   failed: 'destructive',
+  cancelled: 'muted',
   initiation_failed: 'destructive'
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  paid: 'Paid',
+  pending: 'Pending',
+  initiating: 'Starting',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  initiation_failed: 'Could not start'
 };
 
 export function PaymentHistory({
@@ -92,7 +102,9 @@ export function PaymentHistory({
             </span>
             <span className="flex shrink-0 items-center gap-2">
               <span className="font-semibold">{formatKes(payment.amountKes)}</span>
-              <Badge variant={STATUS_VARIANT[payment.status] ?? 'muted'}>{payment.status}</Badge>
+              <Badge variant={STATUS_VARIANT[payment.status] ?? 'muted'}>
+                {STATUS_LABELS[payment.status] ?? payment.status}
+              </Badge>
             </span>
           </li>
         ))}

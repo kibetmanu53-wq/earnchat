@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { listUserPayments, startPayment } from '@earnchat/core';
-import { getMpesaClient } from '@earnchat/payments';
+import { getPaymentClient } from '@earnchat/payments';
 import { paymentHistoryQuerySchema, paymentInitiateSchema } from '@earnchat/validation';
 import { jsonError, jsonOk, readJson } from '@/lib/http';
 import { enforceRateLimit } from '@/lib/rate-limit';
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       userId: user.id,
       type: parsed.data.type,
       phone: parsed.data.phone,
-      mpesa: getMpesaClient()
+      mpesa: getPaymentClient()
     });
 
     return jsonOk(

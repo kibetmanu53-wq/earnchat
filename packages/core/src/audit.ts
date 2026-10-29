@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = {
   paymentInitiationFailed: 'payment.initiation_failed',
   paymentSettled: 'payment.settled',
   paymentFailed: 'payment.failed',
+  paymentCancelled: 'payment.cancelled',
   accountVerified: 'account.verified',
   membershipActivated: 'membership.activated',
   earningCredited: 'earning.credited'

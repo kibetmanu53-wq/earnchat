@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadMailConfig, mailConfigError, passwordResetEmail, verificationEmail } from '../src/index';
+import { loadMailConfig, mailConfigError, passwordResetEmail } from '../src/index';
 
 describe('mail config', () => {
   it('defaults to log mode with a safe sender', () => {
@@ -20,16 +20,6 @@ describe('mail config', () => {
 });
 
 describe('templates', () => {
-  it('includes the action link in verification email', () => {
-    const { subject, html, text } = verificationEmail({
-      displayName: 'Amina',
-      url: 'https://app.test/verify-email?token=abc'
-    });
-    expect(subject).toMatch(/verify/i);
-    expect(html).toContain('https://app.test/verify-email?token=abc');
-    expect(text).toContain('https://app.test/verify-email?token=abc');
-  });
-
   it('includes the action link in reset email', () => {
     const { subject, html } = passwordResetEmail({
       displayName: 'Amina',

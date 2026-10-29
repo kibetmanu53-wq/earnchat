@@ -2,7 +2,14 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { confirmPaymentByQuery, listPendingPayments } from '@earnchat/core';
 import { createLogger } from '@earnchat/logger';
-import { getMpesaClient, loadMpesaConfig, mpesaConfigError } from '@earnchat/payments';
+import {
+  getPaymentClientForProvider,
+  isPaymentProvider,
+  loadMpesaConfig,
+  loadPaymentProvider,
+  paymentConfigError,
+  type MpesaClient
+} from '@earnchat/payments';
 
 const rootEnv = fileURLToPath(new URL('../../../.env', import.meta.url));
 if (existsSync(rootEnv) && typeof process.loadEnvFile === 'function') {
@@ -22,15 +29,29 @@ async function sweep(): Promise<void> {
   try {
     const pending = await listPendingPayments(BATCH_SIZE);
     if (pending.length === 0) return;
-    const mpesa = getMpesaClient();
+    const clients = new Map<string, MpesaClient>();
     for (const payment of pending) {
       try {
+        if (!isPaymentProvider(payment.provider)) {
+          log.warn('skipping payment with unknown provider', { paymentId: payment.id, provider: payment.provider });
+          continue;
+        }
+        let mpesa = clients.get(payment.provider);
+        if (!mpesa) {
+          mpesa = getPaymentClientForProvider(payment.provider);
+          clients.set(payment.provider, mpesa);
+        }
         const result = await confirmPaymentByQuery(payment.id, mpesa);
         if (result && result.status !== payment.status) {
-          log.info('payment status changed', { paymentId: payment.id, from: payment.status, to: result.status });
+          log.info('payment status changed', {
+            paymentId: payment.id,
+            provider: payment.provider,
+            from: payment.status,
+            to: result.status
+          });
         }
       } catch (error) {
-        log.warn('could not confirm payment', { paymentId: payment.id, error });
+        log.warn('could not confirm payment', { paymentId: payment.id, provider: payment.provider, error });
       }
     }
   } catch (error) {
@@ -41,10 +62,15 @@ async function sweep(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const provider = loadPaymentProvider();
   const config = loadMpesaConfig();
-  log.info('starting', { pollIntervalMs: POLL_INTERVAL_MS, mpesaMode: config.mode });
-  const configError = mpesaConfigError(config);
-  if (configError) log.warn('M-Pesa is not fully configured', { configError });
+  log.info('starting', {
+    pollIntervalMs: POLL_INTERVAL_MS,
+    paymentProvider: provider,
+    mpesaMode: provider === 'daraja' ? config.mode : undefined
+  });
+  const configError = paymentConfigError();
+  if (configError) log.warn('payments are not fully configured', { paymentProvider: provider, configError });
 
   await sweep();
 

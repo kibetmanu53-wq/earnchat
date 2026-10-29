@@ -1,14 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
-import { authTokens, getDb, users, type Database, type User } from '@earnchat/db';
+import { authTokens, getDb, users, type Database } from '@earnchat/db';
 import { destroyAllSessions, hashPassword } from '@earnchat/auth';
-import { loadMailConfig, passwordResetEmail, sendEmail, verificationEmail } from '@earnchat/email';
+import { loadMailConfig, passwordResetEmail, sendEmail } from '@earnchat/email';
 import { AppError } from './errors';
 
-export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 
-type AuthTokenType = 'verify_email' | 'reset_password';
+type AuthTokenType = 'reset_password';
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -45,35 +44,6 @@ async function findLiveToken(token: string, type: AuthTokenType, db: Database) {
 function link(path: string, token: string): string {
   const { appUrl } = loadMailConfig();
   return `${appUrl}${path}?token=${encodeURIComponent(token)}`;
-}
-
-export async function sendEmailVerification(user: User, db: Database = getDb()): Promise<void> {
-  if (user.emailVerifiedAt) return;
-  const token = await issueToken(user.id, 'verify_email', EMAIL_VERIFICATION_TTL_MS, db);
-  const message = verificationEmail({ displayName: user.displayName, url: link('/verify-email', token) });
-  await sendEmail({ to: user.email, ...message });
-}
-
-export async function verifyEmailToken(token: string, db: Database = getDb()): Promise<User> {
-  const row = await findLiveToken(token, 'verify_email', db);
-  if (!row) throw new AppError('This verification link is invalid or has expired.', 400, 'invalid_token');
-
-  return db.transaction(async (tx) => {
-    const [consumed] = await tx
-      .update(authTokens)
-      .set({ consumedAt: new Date() })
-      .where(and(eq(authTokens.id, row.id), isNull(authTokens.consumedAt)))
-      .returning({ id: authTokens.id });
-    if (!consumed) throw new AppError('This verification link is invalid or has expired.', 400, 'invalid_token');
-
-    const [user] = await tx
-      .update(users)
-      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
-      .where(eq(users.id, row.userId))
-      .returning();
-    if (!user) throw new AppError('Account not found.', 404);
-    return user;
-  });
 }
 
 /** Always resolves, even for unknown emails, to avoid account enumeration. */

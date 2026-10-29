@@ -23,6 +23,7 @@ export function createMockMpesaClient(options: MockMpesaOptions = {}): MpesaClie
 
   return {
     mode: 'mock',
+    provider: 'daraja',
     async stkPush(_request: StkPushRequest) {
       const checkoutRequestId = `${MOCK_ID_PREFIX}${Date.now()}_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
       return {
