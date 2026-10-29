@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { confirmPaymentByQuery, getPayment } from '@earnchat/core';
-import { getPaymentClientForProvider, isPaymentProvider } from '@earnchat/payments';
+import { logger } from '@earnchat/logger';
+import { getPaymentClientForProvider, isPaymentProvider, MpesaError } from '@earnchat/payments';
 import { jsonError, jsonOk } from '@/lib/http';
 import { getCurrentUser } from '@/lib/session';
 
@@ -19,7 +20,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
 
     if (payment.status === 'pending' && isPaymentProvider(payment.provider)) {
-      payment = (await confirmPaymentByQuery(payment.id, getPaymentClientForProvider(payment.provider))) ?? payment;
+      try {
+        payment = (await confirmPaymentByQuery(payment.id, getPaymentClientForProvider(payment.provider))) ?? payment;
+      } catch (error) {
+        // A provider that is unreachable or unconfigured must not turn a status
+        // read into a 500; report the last state we recorded instead.
+        logger.warn('Could not confirm payment with provider', {
+          paymentId: payment.id,
+          provider: payment.provider,
+          error
+        });
+        if (!(error instanceof MpesaError)) throw error;
+      }
     }
 
     return jsonOk({

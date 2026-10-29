@@ -45,12 +45,27 @@ export function loadNexusPayConfig(env: NodeJS.ProcessEnv = process.env): NexusP
   };
 }
 
+/**
+ * Validates only the webhook signing secret. Kept separate from the full config
+ * check because the webhook endpoint must reject an unusable secret even when
+ * the API key or base URL is missing — and a URL pasted into this variable can
+ * never verify an HMAC signature.
+ */
+export function nexusPayWebhookSecretError(secret: string | undefined): string | null {
+  if (!secret) return 'Set NEXUS_PAY_WEBHOOK_SECRET from the Nexus Pay Webhooks dashboard.';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(secret)) {
+    return 'NEXUS_PAY_WEBHOOK_SECRET is a URL. Use the webhook signing secret from the Nexus Pay Webhooks dashboard, not the endpoint URL.';
+  }
+  return null;
+}
+
 export function nexusPayConfigError(config: NexusPayConfig, env: NodeJS.ProcessEnv = process.env): string | null {
   if (!config.apiKey) return 'Set NEXUS_PAY_API_KEY to the secret key from the Nexus Pay dashboard.';
   if (config.apiKey.startsWith('pk_')) {
     return 'NEXUS_PAY_API_KEY must be the secret key (sk_... or sb_...), not the public key (pk_...).';
   }
-  if (!config.webhookSecret) return 'Set NEXUS_PAY_WEBHOOK_SECRET from the Nexus Pay Webhooks dashboard.';
+  const webhookSecretError = nexusPayWebhookSecretError(config.webhookSecret);
+  if (webhookSecretError) return webhookSecretError;
   if (!config.baseUrl) return 'Set NEXUS_PAY_API_BASE_URL to the API origin shown in the Nexus Pay dashboard.';
   try {
     const baseUrl = new URL(config.baseUrl);
@@ -293,6 +308,9 @@ export type NexusPayEventDecision =
 
 const RECEIPT_PATTERN = /^[A-Z0-9]{6,20}$/;
 
+/** Daraja ResultCodes that end the transaction without a payment. */
+const DARAJA_FAILED_RESULT_CODES = new Set([1, 1019, 2001, 9999]);
+
 /**
  * Decides what a verified webhook may do to a stored payment. This function is
  * deliberately pure and conservative: every identity, amount and status field
@@ -385,6 +403,15 @@ export function decideStkQuery(
     return { action: 'cancelled', resultCode: result.resultCode, reason: 'customer_cancelled' };
   }
   if (result.status === 'failed') {
+    return { action: 'failed', resultCode: result.resultCode, reason: 'provider_reported_failure' };
+  }
+  // Daraja reports only a numeric ResultCode (no normalized status), so the
+  // documented terminal codes must be mapped here as well. Without this a
+  // cancelled or declined STK push would stay pending forever.
+  if (result.resultCode === 1032) {
+    return { action: 'cancelled', resultCode: 1032, reason: 'customer_cancelled' };
+  }
+  if (DARAJA_FAILED_RESULT_CODES.has(result.resultCode)) {
     return { action: 'failed', resultCode: result.resultCode, reason: 'provider_reported_failure' };
   }
   return { action: 'wait', reason: 'unknown_status' };

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { listUserPayments, startPayment } from '@earnchat/core';
-import { getPaymentClient } from '@earnchat/payments';
+import { logger } from '@earnchat/logger';
+import { getPaymentClient, paymentConfigError } from '@earnchat/payments';
 import { paymentHistoryQuerySchema, paymentInitiateSchema } from '@earnchat/validation';
 import { jsonError, jsonOk, readJson } from '@/lib/http';
 import { enforceRateLimit } from '@/lib/rate-limit';
@@ -38,6 +39,17 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+
+    // Fail before touching the database or the provider so a misconfigured
+    // deployment returns an actionable error instead of a generic 500.
+    const configError = paymentConfigError();
+    if (configError) {
+      logger.error('Payment initiation blocked: provider is not configured', { configError });
+      return NextResponse.json(
+        { error: `Payments are not configured on this deployment. ${configError}`, code: 'payments_not_configured' },
+        { status: 500 }
+      );
+    }
 
     await enforceRateLimit(request, 'payment-initiate', 10, 15 * 60_000, user.id);
 

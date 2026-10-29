@@ -16,6 +16,11 @@ const TERMINAL_MESSAGES: Record<'failed' | 'cancelled', string> = {
   cancelled: 'The M-Pesa prompt was cancelled. You can try again when ready.'
 };
 
+// A status endpoint that keeps failing must stop the poll loop and tell the
+// user, instead of retrying forever every couple of seconds.
+const MAX_STATUS_FAILURES = 4;
+const STATUS_RETRY_DELAY_MS = 5000;
+
 export function PaymentCard({
   type,
   amountKes,
@@ -36,6 +41,7 @@ export function PaymentCard({
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusFailures = useRef(0);
 
   useEffect(
     () => () => {
@@ -51,9 +57,15 @@ export function PaymentCard({
     }
   }
 
-  function scheduleCheck(id: string) {
+  function scheduleCheck(id: string, delayMs = 2000) {
     stopPolling();
-    pollTimer.current = setTimeout(() => void checkStatus(id), 2000);
+    pollTimer.current = setTimeout(() => void checkStatus(id), delayMs);
+  }
+
+  function failStatus(message: string) {
+    stopPolling();
+    setStatus('failed');
+    setMessage(message);
   }
 
   function applyStatus(next: string | undefined, id: string): boolean {
@@ -85,13 +97,26 @@ export function PaymentCard({
     try {
       const response = await fetch(`/api/payments/${id}`, { cache: 'no-store' });
       if (!response.ok) {
-        scheduleCheck(id);
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        const retryable = response.status >= 500 || response.status === 429;
+        if (retryable && statusFailures.current < MAX_STATUS_FAILURES) {
+          statusFailures.current += 1;
+          scheduleCheck(id, STATUS_RETRY_DELAY_MS);
+          return;
+        }
+        failStatus(data.error ?? `Could not check the payment status (HTTP ${response.status}).`);
         return;
       }
+      statusFailures.current = 0;
       const data = (await response.json()) as { payment?: { status?: string } };
       applyStatus(data.payment?.status, id);
     } catch {
-      scheduleCheck(id);
+      if (statusFailures.current < MAX_STATUS_FAILURES) {
+        statusFailures.current += 1;
+        scheduleCheck(id, STATUS_RETRY_DELAY_MS);
+        return;
+      }
+      failStatus('Could not reach the server to check the payment status. Refresh the page to try again.');
     }
   }
 
@@ -118,6 +143,7 @@ export function PaymentCard({
 
     setStatus('sending');
     setMessage(null);
+    statusFailures.current = 0;
     try {
       const response = await fetch('/api/payments', {
         method: 'POST',

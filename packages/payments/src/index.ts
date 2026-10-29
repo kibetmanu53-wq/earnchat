@@ -13,6 +13,7 @@ export {
   decideStkQuery,
   loadNexusPayConfig,
   nexusPayConfigError,
+  nexusPayWebhookSecretError,
   parseKesAmount,
   parseNexusPayWebhook,
   verifyNexusPaySignature,

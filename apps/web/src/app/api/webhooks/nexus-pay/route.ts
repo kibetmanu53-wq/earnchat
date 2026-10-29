@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { handleNexusPayWebhook } from '@earnchat/core';
 import { logger } from '@earnchat/logger';
-import { loadNexusPayConfig, parseNexusPayWebhook, verifyNexusPaySignature } from '@earnchat/payments';
+import {
+  loadNexusPayConfig,
+  nexusPayWebhookSecretError,
+  parseNexusPayWebhook,
+  verifyNexusPaySignature
+} from '@earnchat/payments';
 import { jsonError } from '@/lib/http';
 
 export const runtime = 'nodejs';
@@ -26,9 +31,12 @@ const ACK = { received: true } as const;
  */
 export async function POST(request: Request) {
   const config = loadNexusPayConfig();
-  if (!config.webhookSecret) {
-    log.error('NEXUS_PAY_WEBHOOK_SECRET is not configured');
-    return NextResponse.json({ error: 'Webhook is not configured.' }, { status: 503 });
+  const secretError = nexusPayWebhookSecretError(config.webhookSecret);
+  if (secretError) {
+    // A missing secret and a URL pasted into the secret variable both make
+    // every delivery fail signature verification, so report the real problem.
+    log.error('NEXUS_PAY_WEBHOOK_SECRET is not usable', { reason: secretError });
+    return NextResponse.json({ error: `Webhook is not configured. ${secretError}` }, { status: 503 });
   }
 
   let rawBody: string;

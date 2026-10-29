@@ -8,6 +8,7 @@ import {
   loadNexusPayConfig,
   loadPaymentProvider,
   nexusPayConfigError,
+  nexusPayWebhookSecretError,
   parseKesAmount,
   parseNexusPayWebhook,
   verifyNexusPaySignature,
@@ -83,6 +84,18 @@ describe('Nexus Pay config', () => {
 
     const badTimeout = { ...config, timeoutMs: 0 };
     expect(nexusPayConfigError(badTimeout)).toMatch(/NEXUS_PAY_TIMEOUT_MS/);
+  });
+
+  it('rejects a webhook secret that is a URL instead of a signing secret', () => {
+    const urlSecret = { ...config, webhookSecret: 'https://makamescopay.com/api/webhooks/nexus-pay' };
+    expect(nexusPayConfigError(urlSecret)).toMatch(/signing secret/i);
+    expect(nexusPayConfigError(urlSecret)).toMatch(/NEXUS_PAY_WEBHOOK_SECRET/);
+
+    expect(nexusPayWebhookSecretError('https://example.com/hook')).toMatch(/signing secret/i);
+    expect(nexusPayWebhookSecretError('wss://example.com/hook')).toMatch(/signing secret/i);
+    expect(nexusPayWebhookSecretError('')).toMatch(/NEXUS_PAY_WEBHOOK_SECRET/);
+    expect(nexusPayWebhookSecretError(undefined)).toMatch(/NEXUS_PAY_WEBHOOK_SECRET/);
+    expect(nexusPayWebhookSecretError('whsec_abc123')).toBeNull();
   });
 
   it('requires HTTPS except for localhost in development', () => {
@@ -407,6 +420,23 @@ describe('status query decisions', () => {
     });
     expect(decideStkQuery({ resultCode: 1032, resultDesc: 'failed', status: 'failed' }, payment)).toMatchObject({
       action: 'failed'
+    });
+  });
+
+  it('maps terminal Daraja ResultCodes when no normalized status is present', () => {
+    expect(decideStkQuery({ resultCode: 1032, resultDesc: 'Request cancelled by user.' }, payment)).toMatchObject({
+      action: 'cancelled',
+      resultCode: 1032
+    });
+    for (const resultCode of [1, 1019, 2001, 9999]) {
+      expect(decideStkQuery({ resultCode, resultDesc: 'declined' }, payment)).toMatchObject({
+        action: 'failed',
+        resultCode
+      });
+    }
+    // 1037 (no response yet) must keep waiting, not fail the payment.
+    expect(decideStkQuery({ resultCode: 1037, resultDesc: 'pending' }, payment)).toMatchObject({
+      action: 'wait'
     });
   });
 });
