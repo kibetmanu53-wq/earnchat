@@ -110,7 +110,7 @@ with `PAYMENT_PROVIDER=daraja`.
    PAYMENT_PROVIDER=nexus_pay
    NEXUS_PAY_API_KEY=sk_...
    NEXUS_PAY_WEBHOOK_SECRET=...
-   NEXUS_PAY_API_BASE_URL=https://makamescopay.com
+   NEXUS_PAY_API_BASE_URL=https://makamescopay.com/api/payments/stkpush
    ```
 
 4. Keep the worker running. It reconciles pending Nexus Pay payments with

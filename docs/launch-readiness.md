@@ -69,7 +69,7 @@ Use this instead of the Daraja section when `PAYMENT_PROVIDER=nexus_pay`.
       public `pk_...` key.
 - [ ] `NEXUS_PAY_WEBHOOK_SECRET` matches the secret for the endpoint in the
       Nexus Pay dashboard.
-- [ ] `NEXUS_PAY_API_BASE_URL=https://makamescopay.com` (HTTPS is required
+- [ ] `NEXUS_PAY_API_BASE_URL=https://makamescopay.com/api/payments/stkpush` (HTTPS is required
       outside localhost).
 - [ ] Dashboard webhook URL is `https://<host>/api/webhooks/nexus-pay` with
       `payment.completed` and `payment.failed` (`payment.cancelled` optional).
