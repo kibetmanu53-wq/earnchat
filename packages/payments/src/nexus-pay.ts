@@ -167,16 +167,23 @@ export function createNexusPayClient(config: NexusPayConfig, options: NexusPayCl
     mode: 'live',
     provider: 'nexus_pay',
     async stkPush(requestBody: StkPushRequest): Promise<StkPushResult> {
-      const { response, body } = await request('/api/payments/stkpush', {
+      const normalizedPhone = normalizeKenyanPhone(requestBody.phone);
+      if (!normalizedPhone) {
+        throw new MpesaError('Invalid Kenyan phone number. Must start with 07... or 2547...', 'invalid_phone');
+      }
+      const fullUrl = config.baseUrl || '';
+      console.log('🔧 Nexus Pay STK Push request:', { url: fullUrl, phone: normalizedPhone, amountKes: requestBody.amountKes });
+      const { response, body } = await request('', {
         method: 'POST',
         body: JSON.stringify({
-          phoneNumber: requestBody.phone,
+          phoneNumber: normalizedPhone,
           amount: requestBody.amountKes,
           accountReference: requestBody.accountReference,
           transactionDesc: requestBody.description
         })
       });
       if (!response.ok) throw providerError(response, body);
+      console.log('✅ Nexus Pay STK Push response:', { status: response.status, responseCode: body.responseCode });
 
       if (body.responseCode !== undefined && String(body.responseCode) !== '0') {
         throw new MpesaError(
@@ -198,7 +205,7 @@ export function createNexusPayClient(config: NexusPayConfig, options: NexusPayCl
       };
     },
     async stkQuery(checkoutRequestId: string): Promise<StkQueryResult> {
-      const { response, body } = await request(`/api/payments/status/${encodeURIComponent(checkoutRequestId)}`, {
+      const { response, body } = await request(`/status/${encodeURIComponent(checkoutRequestId)}`, {
         method: 'GET'
       });
       if (!response.ok) throw providerError(response, body);

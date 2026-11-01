@@ -151,7 +151,7 @@ describe('Nexus Pay client', () => {
       transactionId: 'tx_123'
     });
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toBe('https://makamescopay.test/api/payments/stkpush');
+    expect(requests[0]!.url).toBe('https://makamescopay.test');
     expect(requests[0]!.init?.method).toBe('POST');
     expect((requests[0]!.init?.headers as Record<string, string>)['x-api-key']).toBe(config.apiKey);
     expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({
